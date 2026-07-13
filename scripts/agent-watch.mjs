@@ -39,7 +39,7 @@ function runCodex() {
       "--skip-git-repo-check",
       "-C", rootDir,
       operatorPrompt
-    ], { cwd: rootDir, env: process.env, stdio: "inherit" });
+    ], { cwd: rootDir, env: process.env, stdio: ["ignore", "inherit", "inherit"] });
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (code === 0) resolve();
