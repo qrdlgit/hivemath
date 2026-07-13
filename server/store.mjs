@@ -200,6 +200,21 @@ export class MathHiveStore extends EventEmitter {
     });
   }
 
+  async renameSpace(token, spaceId, name) {
+    const { profile } = this.requireSession(token);
+    const nextName = String(name || "").trim();
+    if (nextName.length < 2 || nextName.length > 80) throw new StoreError("invalid_space_name", "Use a theorem space name between 2 and 80 characters.");
+    return this.mutate((data) => {
+      const space = data.spaces.find((item) => item.id === spaceId);
+      if (!space) throw new StoreError("space_not_found", "Theorem space not found.", 404);
+      const previousName = space.name;
+      space.name = nextName;
+      space.updatedAt = now();
+      const activity = this.#activity(data, { spaceId: space.id, actorId: profile.id, action: "space.renamed", entityType: "space", entityId: space.id, summary: `${profile.displayName} renamed ${previousName} to ${nextName}.` });
+      return { result: space, events: [{ type: "space.updated", spaceId: space.id, entity: clone(space) }, { type: "activity.new", spaceId: space.id, entity: activity }] };
+    });
+  }
+
   bootstrap({ token, spaceId }) {
     const { profile } = this.requireSession(token);
     const space = this.getSpace(spaceId || profile.activeSpaceId) || this.data.spaces[0];

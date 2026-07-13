@@ -26,7 +26,10 @@ test("join, author, coach, validate, notify, star, and preserve revision history
     const ada = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Ada Test", pin: "1234" } });
     const emmy = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Emmy Test", pin: "5678" } });
     assert.notEqual(ada.token, emmy.token);
+    const renamedSpace = await request(baseUrl, `/api/spaces/${ada.space.id}`, { token: ada.token, method: "PATCH", body: { name: "Spectral Test Program" } });
+    assert.equal(renamedSpace.name, "Spectral Test Program");
     const initial = await request(baseUrl, `/api/bootstrap?spaceId=${ada.space.id}`, { token: ada.token });
+    assert.equal(initial.space.name, "Spectral Test Program");
     const geometry = initial.spaces.find((space) => space.inviteSlug === "algebraic-geometry");
     await request(baseUrl, "/api/profiles/me", { token: emmy.token, method: "PATCH", body: { activeSpaceId: geometry.id } });
     const emmyDraft = await request(baseUrl, "/api/results", { token: emmy.token, method: "POST", body: { spaceId: geometry.id, title: "Geometric equality application", tags: ["equality"] } });

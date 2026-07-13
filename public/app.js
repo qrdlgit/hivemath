@@ -516,6 +516,13 @@ function handleRealtime(event) {
     upsert(state.profiles, event.entity);
     return;
   }
+  if (event.type === "space.updated") {
+    upsert(state.spaces, event.entity);
+    if (state.space.id === event.entity.id) state.space = event.entity;
+    renderWorkspace();
+    renderSpaces();
+    return;
+  }
   if (event.type === "entity.delete" && event.entityType === "edge") {
     state.edges = state.edges.filter((edge) => edge.id !== event.id);
     renderEdges();
@@ -829,6 +836,52 @@ async function copyInvite() {
   }
 }
 
+let workspaceRenameActive = false;
+
+function startWorkspaceRename() {
+  if (!state.space || workspaceRenameActive) return;
+  workspaceRenameActive = true;
+  $("#workspacePopover").classList.remove("open");
+  $("#workspaceNameButton").hidden = true;
+  const input = $("#workspaceNameInput");
+  input.hidden = false;
+  input.value = state.space.name;
+  input.focus();
+  input.select();
+}
+
+function cancelWorkspaceRename() {
+  workspaceRenameActive = false;
+  $("#workspaceNameInput").hidden = true;
+  $("#workspaceNameButton").hidden = false;
+}
+
+async function saveWorkspaceRename() {
+  if (!workspaceRenameActive) return;
+  const input = $("#workspaceNameInput");
+  const name = input.value.trim();
+  if (name === state.space.name) return cancelWorkspaceRename();
+  if (name.length < 2) {
+    showToast("Use at least two characters for the space name.", "error");
+    input.focus();
+    return;
+  }
+  workspaceRenameActive = false;
+  input.hidden = true;
+  $("#workspaceNameButton").hidden = false;
+  try {
+    const updated = await api(`/api/spaces/${state.space.id}`, { method: "PATCH", body: { name } });
+    upsert(state.spaces, updated);
+    state.space = updated;
+    renderWorkspace();
+    renderSpaces();
+    showToast("Theorem space renamed");
+  } catch (error) {
+    showToast(error.message, "error");
+    startWorkspaceRename();
+  }
+}
+
 async function logout() {
   const button = $("#logoutButton");
   button.disabled = true;
@@ -864,6 +917,12 @@ function bindEvents() {
     } finally { submit.disabled = false; }
   });
 
+  $("#workspaceNameButton").addEventListener("click", startWorkspaceRename);
+  $("#workspaceNameInput").addEventListener("blur", saveWorkspaceRename);
+  $("#workspaceNameInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); saveWorkspaceRename(); }
+    if (event.key === "Escape") { event.preventDefault(); cancelWorkspaceRename(); }
+  });
   $("#workspaceMenu").addEventListener("click", () => $("#workspacePopover").classList.toggle("open"));
   $("#copyInvite").addEventListener("click", copyInvite);
   $("#copySpaceUrl").addEventListener("click", copyInvite);

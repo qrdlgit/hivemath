@@ -22,10 +22,11 @@
         </div>
 
         <div class="workspace-heading">
-          <button class="workspace-menu" id="workspaceMenu">
-            <strong id="workspaceTitle">Spectral Gap Program</strong>
-            <i data-lucide="chevron-down"></i>
-          </button>
+          <div class="workspace-name-control">
+            <button class="workspace-name-button" id="workspaceNameButton" title="Rename theorem space"><strong id="workspaceTitle">Spectral Gap Program</strong></button>
+            <input class="workspace-name-input" id="workspaceNameInput" aria-label="Theorem space name" minlength="2" maxlength="80" hidden />
+            <button class="workspace-menu-toggle" id="workspaceMenu" title="Switch theorem space" aria-label="Switch theorem space"><i data-lucide="chevron-down"></i></button>
+          </div>
           <button class="privacy-pill" id="copyInvite"><i data-lucide="link"></i> Copy invite</button>
           <div class="workspace-popover" id="workspacePopover" role="menu"></div>
         </div>

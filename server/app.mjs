@@ -79,6 +79,7 @@ export async function createMathHiveServer(options = {}) {
   app.get("/api/bootstrap", (req, res) => res.json(store.bootstrap({ token: req.token, spaceId: req.query.spaceId })));
   app.post("/api/logout", asyncRoute(async (req, res) => res.json(await store.logout(req.token))));
   app.patch("/api/profiles/me", asyncRoute(async (req, res) => res.json(await store.updateProfile(req.token, req.body || {}))));
+  app.patch("/api/spaces/:spaceId", asyncRoute(async (req, res) => res.json(await store.renameSpace(req.token, req.params.spaceId, req.body?.name))));
   app.post("/api/results", asyncRoute(async (req, res) => res.status(201).json(await store.createResult(req.token, req.body || {}))));
   app.patch("/api/results/:id", asyncRoute(async (req, res) => {
     const result = await store.updateResult(req.token, req.params.id, req.body || {});

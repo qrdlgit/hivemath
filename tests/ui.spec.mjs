@@ -17,6 +17,15 @@ test("two mathematicians collaborate, receive MCP-style coaching, and validate a
     await join(ada, "Ada Browser", "1234");
     await join(emmy, "Emmy Browser", "5678");
     await expect(ada.locator("#onlineCount")).toHaveText("2 online");
+    await ada.locator("#workspaceNameButton").click();
+    await ada.getByLabel("Theorem space name").fill("Spectral Collaboration Lab");
+    await ada.getByLabel("Theorem space name").press("Enter");
+    await expect(ada.locator("#workspaceTitle")).toHaveText("Spectral Collaboration Lab");
+    await expect(emmy.locator("#workspaceTitle")).toHaveText("Spectral Collaboration Lab");
+    await ada.locator("#workspaceNameButton").click();
+    await ada.getByLabel("Theorem space name").fill("Spectral Gap Program");
+    await ada.getByLabel("Theorem space name").press("Enter");
+    await expect(emmy.locator("#workspaceTitle")).toHaveText("Spectral Gap Program");
 
     await ada.getByRole("button", { name: "New result" }).click();
     await ada.locator("#resultTitle").fill("Browser equality lemma");
