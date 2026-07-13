@@ -30,6 +30,7 @@ test("MCP polls, claims context, and pushes draft feedback into MathHive", async
     await client.connect(transport);
     const tools = await client.listTools();
     assert.equal(tools.tools.some((tool) => tool.name === "submit_validation"), true);
+    assert.equal(tools.tools.some((tool) => tool.name === "submit_conjecture_review"), true);
     const status = parsed(await client.callTool({ name: "get_queue_status", arguments: {} }));
     assert.equal(status.pendingWorkCount, 1);
     const next = parsed(await client.callTool({ name: "get_next_work", arguments: {} }));
@@ -39,6 +40,7 @@ test("MCP polls, claims context, and pushes draft feedback into MathHive", async
     const completed = parsed(await client.callTool({ name: "submit_draft_review", arguments: {
       workId: next.work.id, draftRevision: draft.draftRevision,
       summary: "The reflexivity argument proves the statement.", issues: [], relevantResultIds: [],
+      relevanceAssessment: { verdict: "relevant", explanation: "The equality lemma is relevant to the workspace's active foundational results.", relatedResultIds: [] },
       notification: { title: "MCP review ready", body: "The argument is valid as written." }
     } }));
     assert.equal(completed.stale, false);
@@ -64,6 +66,26 @@ test("MCP polls, claims context, and pushes draft feedback into MathHive", async
     parsed(await client.callTool({ name: "submit_integrations", arguments: { workId: integrationWork.work.id, suggestions: [], notifications: [] } }));
     const projection = parsed(await client.callTool({ name: "inspect_projection", arguments: { spaceId: joined.space.id } }));
     assert.deepEqual(projection.warnings, []);
+
+    const conjecture = await (await fetch(`${baseUrl}/api/results`, { method: "POST", headers, body: JSON.stringify({ spaceId: joined.space.id, kind: "conjecture", title: "MCP conjecture" }) })).json();
+    await fetch(`${baseUrl}/api/results/${conjecture.id}`, { method: "PATCH", headers, body: JSON.stringify({ statementLatex: "x=x \\Longrightarrow x=x", hypothesesLatex: ["x \\in X"], dependencyIds: [created.id] }) });
+    const conjectureSubmission = await (await fetch(`${baseUrl}/api/results/${conjecture.id}/submit`, { method: "POST", headers, body: "{}" })).json();
+    const conjectureWork = parsed(await client.callTool({ name: "get_next_work", arguments: {} }));
+    assert.equal(conjectureWork.work.type, "review_conjecture");
+    const conjectureContext = parsed(await client.callTool({ name: "get_work_context", arguments: { workId: conjectureWork.work.id } }));
+    assert.equal(conjectureContext.relatedCandidates.some((item) => item.id === created.id), true);
+    parsed(await client.callTool({ name: "submit_conjecture_review", arguments: {
+      workId: conjectureWork.work.id,
+      submittedRevisionId: conjectureSubmission.result.submittedRevisionId,
+      decision: "relevant",
+      summary: "The conjecture is a direct extension of the equality result.",
+      relevanceExplanation: "It uses the same domain and conclusion and is connected to the reviewed result.",
+      relatedResultIds: [created.id], issues: [], confidence: 95,
+      notification: { title: "Conjecture review ready", body: "The conjecture is relevant to the equality branch." }
+    } }));
+    const afterConjecture = await (await fetch(`${baseUrl}/api/bootstrap?spaceId=${joined.space.id}`, { headers: { Authorization: `Bearer ${joined.token}` } })).json();
+    assert.equal(afterConjecture.results.find((item) => item.id === conjecture.id).status, "conjecture");
+    assert.equal(afterConjecture.notifications.some((item) => item.type === "conjecture_review"), true);
   } finally {
     await client.close().catch(() => {});
     await runtime.stop();

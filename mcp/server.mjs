@@ -29,6 +29,7 @@ const server = new McpServer({ name: "mathhive-poc", version: "0.1.0" }, {
     "You are the sole mathematical review and integration agent for the local MathHive POC.",
     "Poll get_next_work. For every claimed item, get its full context, reason through the mathematics yourself, then submit exactly one matching completion command.",
     "For validation, restate the claim, check hypotheses, dependencies, and every proof step. Do not mark a proof validated merely because it is plausible.",
+    "For conjectures, assess precision and relevance to the theorem space. Conjectures are not proofs and must never be marked validated.",
     "For integration work, search other spaces, inspect full proofs of promising candidates, identify affected active authors, and submit targeted notifications plus executable graph/import changes.",
     "Use inspect_projection after commands that change graph content. If work cannot be completed, call fail_work so its lease does not remain claimed."
   ].join(" ")
@@ -87,9 +88,29 @@ registerWriteTool("submit_draft_review", {
     summary: z.string().min(1),
     issues: z.array(issueSchema).max(12),
     relevantResultIds: z.array(z.string()).max(12).default([]),
+    relevanceAssessment: z.object({
+      verdict: z.enum(["relevant", "possibly_relevant", "not_relevant"]),
+      explanation: z.string().min(1),
+      relatedResultIds: z.array(z.string()).max(12).default([])
+    }),
     notification: z.object({ title: z.string().min(1), body: z.string().min(1) })
   }
 }, async ({ workId, ...body }) => result(await command(`/api/internal/work/${workId}/draft-review`, { method: "POST", body })));
+
+registerWriteTool("submit_conjecture_review", {
+  description: "Submit Codex's manual precision and relevance review of a frozen conjecture. Relevant conjectures are published and queued for integration suggestions; conjectures are never proof-validated.",
+  inputSchema: {
+    workId: z.string().uuid(),
+    submittedRevisionId: z.string().min(1),
+    decision: z.enum(["relevant", "needs_clarification", "not_relevant"]),
+    summary: z.string().min(1),
+    relevanceExplanation: z.string().min(1),
+    relatedResultIds: z.array(z.string()).max(12).default([]),
+    issues: z.array(issueSchema).max(20),
+    confidence: z.number().min(0).max(100),
+    notification: z.object({ title: z.string().min(1), body: z.string().min(1) })
+  }
+}, async ({ workId, ...body }) => result(await command(`/api/internal/work/${workId}/conjecture-review`, { method: "POST", body })));
 
 const checkSchema = z.object({
   subject: z.string().min(1),

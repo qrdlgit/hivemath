@@ -5,13 +5,14 @@ import path from "node:path";
 
 const PRIORITY = {
   validate_result: 100,
+  review_conjecture: 90,
   suggest_integrations: 70,
   review_draft_manual: 30,
   review_draft: 10
 };
 
 const EDITABLE_FIELDS = new Set([
-  "title", "statementLatex", "hypothesesLatex", "proofMarkdown", "tags",
+  "kind", "title", "statementLatex", "hypothesesLatex", "proofMarkdown", "tags",
   "dependencyIds", "citation", "bibtex", "x", "y"
 ]);
 
@@ -64,6 +65,10 @@ export class MathHiveStore extends EventEmitter {
     for (const key of arrays) this.data[key] ||= [];
     this.data.storeRevision ||= 0;
     this.data.agentStatus ||= { state: "offline", currentWorkType: null, updatedAt: now() };
+    for (const result of this.data.results) {
+      result.kind ||= result.tags?.includes("conjecture") ? "conjecture" : "result";
+      result.relevanceStatus ||= null;
+    }
   }
 
   #hydrateSeedRevisions() {
@@ -299,6 +304,7 @@ export class MathHiveStore extends EventEmitter {
     return this.mutate((data) => {
       const result = {
         id: randomUUID(), spaceId: space.id, title: String(input.title || "Untitled result").slice(0, 120),
+        kind: input.kind === "conjecture" || input.tags?.includes("conjecture") ? "conjecture" : "result", relevanceStatus: null,
         statementLatex: String(input.statementLatex || ""), hypothesesLatex: Array.isArray(input.hypothesesLatex) ? input.hypothesesLatex.map(String) : [],
         proofMarkdown: String(input.proofMarkdown || ""), status: "draft", version: 0, draftRevision: 1,
         submittedRevisionId: null, lastCodexReviewAt: null, lastCodexReviewContentLength: 0,
@@ -318,12 +324,13 @@ export class MathHiveStore extends EventEmitter {
     return this.mutate((data) => {
       const result = data.results.find((item) => item.id === id);
       if (!result) throw new StoreError("result_not_found", "Result not found.", 404);
-      const contentChanged = ["title", "statementLatex", "hypothesesLatex", "proofMarkdown", "tags", "dependencyIds", "citation", "bibtex"].some((key) => key in patch);
+      const contentChanged = ["kind", "title", "statementLatex", "hypothesesLatex", "proofMarkdown", "tags", "dependencyIds", "citation", "bibtex"].some((key) => key in patch);
       if (contentChanged && !["draft", "pending_review"].includes(result.status)) throw new StoreError("result_locked", "Create a new revision before editing this result.", 409);
       if (contentChanged && result.status === "pending_review") throw new StoreError("result_locked", "This submitted revision is being reviewed.", 409);
       for (const [key, value] of Object.entries(patch)) {
         if (!EDITABLE_FIELDS.has(key)) continue;
         if (["x", "y"].includes(key)) result[key] = Math.max(0, Math.min(key === "x" ? 900 : 850, Number(value) || 0));
+        else if (key === "kind") result[key] = value === "conjecture" ? "conjecture" : "result";
         else if (["hypothesesLatex", "tags", "dependencyIds"].includes(key)) result[key] = Array.isArray(value) ? value.map(String) : [];
         else result[key] = String(value);
       }
@@ -409,7 +416,8 @@ export class MathHiveStore extends EventEmitter {
       const result = data.results.find((item) => item.id === resultId);
       if (!result) throw new StoreError("result_not_found", "Result not found.", 404);
       if (result.status !== "draft") throw new StoreError("not_a_draft", "Only drafts can be submitted.", 409);
-      if (!result.statementLatex.trim() || !result.proofMarkdown.trim()) throw new StoreError("incomplete_result", "Add a statement and proof before submitting.");
+      if (!result.statementLatex.trim()) throw new StoreError("incomplete_result", "Add a mathematical statement before submitting.");
+      if (result.kind !== "conjecture" && !result.proofMarkdown.trim()) throw new StoreError("incomplete_result", "Add a statement and proof before submitting.");
       data.workQueue = data.workQueue.filter((item) => !(item.entityId === resultId && item.type === "review_draft" && item.status === "pending"));
       result.version += 1;
       result.status = "pending_review";
@@ -419,8 +427,9 @@ export class MathHiveStore extends EventEmitter {
       result.submittedRevisionId = revision.id;
       revision.snapshot.submittedRevisionId = revision.id;
       data.revisions.push(revision);
-      const work = this.#queue(data, { type: "validate_result", spaceId: result.spaceId, entityId: resultId, targetRevision: revision.id, payload: { authorId: profile.id } });
-      const activity = this.#activity(data, { spaceId: result.spaceId, actorId: profile.id, action: "result.submitted", entityType: "result", entityId: result.id, summary: `${profile.displayName} submitted ${result.title} for Codex review.` });
+      const workType = result.kind === "conjecture" ? "review_conjecture" : "validate_result";
+      const work = this.#queue(data, { type: workType, spaceId: result.spaceId, entityId: resultId, targetRevision: revision.id, payload: { authorId: profile.id } });
+      const activity = this.#activity(data, { spaceId: result.spaceId, actorId: profile.id, action: `${result.kind}.submitted`, entityType: "result", entityId: result.id, summary: `${profile.displayName} submitted ${result.title} for Codex ${result.kind === "conjecture" ? "relevance" : "proof"} review.` });
       return { result: { result, work }, events: [...this.#eventsFor("result", result), { type: "activity.new", entity: activity, spaceId: result.spaceId }, { type: "queue.changed", spaceId: result.spaceId, pendingCount: this.pendingWorkCount(data) }] };
     });
   }
@@ -578,6 +587,10 @@ export class MathHiveStore extends EventEmitter {
       feedback: this.data.draftFeedback.filter((item) => item.resultId === result.id),
       author: this.publicProfile(this.data.profiles.find((item) => item.id === result.createdBy)),
       space: this.getSpace(result.spaceId),
+      relatedCandidates: this.data.results.filter((item) => item.spaceId === result.spaceId && item.id !== result.id).map((item) => ({
+        id: item.id, kind: item.kind || "result", title: item.title, status: item.status, statementLatex: item.statementLatex,
+        hypothesesLatex: item.hypothesesLatex, tags: item.tags, dependencyIds: item.dependencyIds
+      })),
       proofSteps: result.proofMarkdown.split(/\n\s*\n/).map((text, index) => ({ id: `step-${index + 1}`, text: text.trim() })).filter((step) => step.text),
       warnings: this.inspectProjection(result.spaceId).warnings
     });
@@ -586,12 +599,12 @@ export class MathHiveStore extends EventEmitter {
   researchContext(workId, { tags = [], limit = 200, resultIds = [] } = {}) {
     const work = this.data.workQueue.find((item) => item.id === workId && item.status === "claimed" && item.type === "suggest_integrations");
     if (!work) throw new StoreError("invalid_work", "Claimed integration work is required.", 409);
-    let results = this.data.results.filter((item) => item.spaceId !== work.spaceId && ["validated", "imported", "draft", "pending_review"].includes(item.status));
+    let results = this.data.results.filter((item) => item.spaceId !== work.spaceId && ["validated", "imported", "draft", "pending_review", "conjecture"].includes(item.status));
     if (tags.length) results = results.filter((item) => item.tags?.some((tag) => tags.includes(tag)));
     if (resultIds.length) results = results.filter((item) => resultIds.includes(item.id)).slice(0, 10);
     else results = results.slice(0, Math.min(200, Number(limit) || 200));
     return clone(results.map((item) => ({
-      id: item.id, spaceId: item.spaceId, title: item.title, status: item.status, statementLatex: item.statementLatex,
+      id: item.id, spaceId: item.spaceId, kind: item.kind || "result", title: item.title, status: item.status, statementLatex: item.statementLatex,
       hypothesesLatex: item.hypothesesLatex, tags: item.tags, dependencyIds: item.dependencyIds, citation: item.citation,
       proofMarkdown: resultIds.length ? item.proofMarkdown : undefined,
       author: this.publicProfile(this.data.profiles.find((profile) => profile.id === item.createdBy))
@@ -617,7 +630,7 @@ export class MathHiveStore extends EventEmitter {
       const work = this.#requireClaimed(data, input.workId, "review_draft");
       const result = data.results.find((item) => item.id === work.entityId);
       const stale = String(result.draftRevision) !== String(input.draftRevision);
-      const feedback = { id: randomUUID(), resultId: result.id, spaceId: result.spaceId, draftRevision: Number(input.draftRevision), status: stale ? "stale" : "current", summary: String(input.summary || ""), issues: clone(input.issues || []), relevantResultIds: clone(input.relevantResultIds || []), createdBy: "codex", createdAt: now() };
+      const feedback = { id: randomUUID(), resultId: result.id, spaceId: result.spaceId, draftRevision: Number(input.draftRevision), status: stale ? "stale" : "current", summary: String(input.summary || ""), issues: clone(input.issues || []), relevantResultIds: clone(input.relevantResultIds || []), relevanceAssessment: input.relevanceAssessment ? clone(input.relevanceAssessment) : null, createdBy: "codex", createdAt: now() };
       data.draftFeedback.push(feedback);
       if (!stale) {
         result.lastCodexReviewAt = now();
@@ -646,6 +659,33 @@ export class MathHiveStore extends EventEmitter {
       if (decision === "validated") this.#queue(data, { type: "suggest_integrations", spaceId: result.spaceId, entityId: result.id, targetRevision: input.submittedRevisionId, payload: { authorId: result.createdBy } });
       const notification = this.#notification(data, { spaceId: result.spaceId, userId: result.createdBy, type: "validation", title: input.notification?.title || "Codex review complete", body: input.notification?.body || review.summary, entityType: "result", entityId: result.id, dedupeKey: `validation:${result.id}:${input.submittedRevisionId}` });
       const activity = this.#activity(data, { spaceId: result.spaceId, actorType: "codex", actorId: "codex", action: `result.${decision}`, entityType: "result", entityId: result.id, summary: `Codex marked ${result.title} as ${decision.replace("_", " ")}.` });
+      this.#complete(data, work);
+      return { result: { result, review }, events: [...this.#eventsFor("result", result), { type: "entity.upsert", entityType: "review", entity: review, spaceId: result.spaceId }, { type: "notification.new", notification, spaceId: result.spaceId, audienceUserIds: [result.createdBy] }, { type: "activity.new", entity: activity, spaceId: result.spaceId }, { type: "queue.changed", spaceId: result.spaceId, pendingCount: this.pendingWorkCount(data) }, { type: "agent.status", state: data.agentStatus }] };
+    });
+  }
+
+  async submitConjectureReview(input) {
+    return this.mutate((data) => {
+      const work = this.#requireClaimed(data, input.workId, "review_conjecture");
+      const result = data.results.find((item) => item.id === work.entityId);
+      if (result.kind !== "conjecture") throw new StoreError("not_a_conjecture", "Conjecture review requires a conjecture.", 409);
+      if (work.targetRevision !== input.submittedRevisionId || result.submittedRevisionId !== input.submittedRevisionId) throw new StoreError("revision_mismatch", "Review must target the submitted conjecture revision.", 409);
+      const decision = ["relevant", "needs_clarification", "not_relevant"].includes(input.decision) ? input.decision : "needs_clarification";
+      const relatedResultIds = (input.relatedResultIds || []).filter((id) => data.results.some((item) => item.id === id && item.spaceId === result.spaceId && item.id !== result.id));
+      const review = {
+        id: randomUUID(), resultId: result.id, reviewerType: "codex", reviewerId: "codex", reviewType: "conjecture_relevance",
+        decision, summary: String(input.summary || ""), relevanceExplanation: String(input.relevanceExplanation || ""),
+        relatedResultIds, issues: clone(input.issues || []), confidence: Number(input.confidence || 0), createdAt: now()
+      };
+      data.reviews.push(review);
+      result.relevanceStatus = decision;
+      result.status = decision === "relevant" ? "conjecture" : "draft";
+      result.updatedAt = now();
+      const revision = data.revisions.find((item) => item.id === input.submittedRevisionId);
+      if (revision) revision.status = result.status;
+      if (decision === "relevant") this.#queue(data, { type: "suggest_integrations", spaceId: result.spaceId, entityId: result.id, targetRevision: input.submittedRevisionId, payload: { authorId: result.createdBy } });
+      const notification = this.#notification(data, { spaceId: result.spaceId, userId: result.createdBy, type: "conjecture_review", title: input.notification?.title || "Conjecture review complete", body: input.notification?.body || review.summary, entityType: "result", entityId: result.id, dedupeKey: `conjecture:${result.id}:${input.submittedRevisionId}` });
+      const activity = this.#activity(data, { spaceId: result.spaceId, actorType: "codex", actorId: "codex", action: `conjecture.${decision}`, entityType: "result", entityId: result.id, summary: `Codex marked ${result.title} as ${decision.replace("_", " ")}.` });
       this.#complete(data, work);
       return { result: { result, review }, events: [...this.#eventsFor("result", result), { type: "entity.upsert", entityType: "review", entity: review, spaceId: result.spaceId }, { type: "notification.new", notification, spaceId: result.spaceId, audienceUserIds: [result.createdBy] }, { type: "activity.new", entity: activity, spaceId: result.spaceId }, { type: "queue.changed", spaceId: result.spaceId, pendingCount: this.pendingWorkCount(data) }, { type: "agent.status", state: data.agentStatus }] };
     });

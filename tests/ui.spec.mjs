@@ -81,9 +81,12 @@ Is it true that for all $m\geq n+k$\[M(n,k) \neq M(m,k)?\]`);
       draftRevision: workContext.result.draftRevision,
       summary: "The reflexivity step establishes the claim. Keep the universal scope explicit.",
       issues: [{ severity: "info", location: "hypotheses", message: "The claim does not require extra structure on X." }],
-      relevantResultIds: [], notification: { title: "Draft coaching ready", body: "The reflexivity proof is sound." }
+      relevantResultIds: [],
+      relevanceAssessment: { verdict: "relevant", explanation: "This result supplies a foundational equality step used by the active branch.", relatedResultIds: [] },
+      notification: { title: "Draft coaching ready", body: "The reflexivity proof is sound." }
     }});
     await expect(ada.locator("#codexFeedback")).toContainText("reflexivity step establishes");
+    await expect(ada.locator("#codexFeedback")).toContainText("Relevance: relevant");
 
     await ada.getByRole("button", { name: "Submit for AI validation" }).click();
     await expect(ada.locator("#editorStatus")).toContainText("Pending review");
@@ -120,6 +123,52 @@ Is it true that for all $m\geq n+k$\[M(n,k) \neq M(m,k)?\]`);
     await ada.getByRole("menuitem", { name: "Log out" }).click();
     await expect(ada.locator("#joinGate")).toBeVisible();
     expect(await ada.evaluate(() => sessionStorage.getItem("mathhive.token"))).toBeNull();
+  } finally {
+    await context.close();
+  }
+});
+
+test("a conjecture can be authored without a proof and receives a relevance review", async ({ browser, request }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  try {
+    await join(page, "Conjecture Browser", "4321");
+    await page.getByRole("button", { name: "More contribution types" }).click();
+    await page.getByRole("menuitem", { name: /New conjecture/ }).click();
+    await expect(page.locator('input[name="resultKind"][value="conjecture"]')).toBeChecked();
+    await expect(page.locator("#feedbackTitle")).toHaveText("Conjecture relevance check");
+    await expect(page.locator("#submitResultLabel")).toHaveText("Submit conjecture for review");
+    await expect(page.locator("#resultProof")).not.toHaveAttribute("required", "");
+
+    await page.locator("#resultTitle").fill("LCM interval conjecture");
+    await page.locator("#resultStatement").fill(String.raw`M(n,k) \neq M(m,k)`);
+    await page.locator("#resultHypotheses").fill("n,k,m \\in \\mathbb{Z}_{\\ge 1}\nm \\ge n+k");
+    await page.locator("#resultDependency").selectOption("result-main");
+    await page.getByRole("button", { name: "Add relation" }).click();
+    await page.getByRole("button", { name: "Submit conjecture for review" }).click();
+    await expect(page.locator("#editorStatus")).toContainText("Pending review");
+
+    const claimed = await (await request.post("/api/internal/work/next", { data: {} })).json();
+    expect(claimed.work.type).toBe("review_conjecture");
+    const workContext = await (await request.get(`/api/internal/work/${claimed.work.id}/context`)).json();
+    expect(workContext.relatedCandidates.some((item) => item.id === "result-main")).toBe(true);
+    expect(workContext.edges.some((edge) => edge.sourceResultId === "result-main" && edge.targetResultId === workContext.result.id)).toBe(true);
+    await request.post(`/api/internal/work/${claimed.work.id}/conjecture-review`, { data: {
+      submittedRevisionId: workContext.result.submittedRevisionId,
+      decision: "relevant",
+      summary: "This conjecture directly addresses the theorem space's root question.",
+      relevanceExplanation: "It is linked to Main Theorem and proposes a concrete number-theoretic obstruction.",
+      relatedResultIds: ["result-main"], issues: [], confidence: 93,
+      notification: { title: "Conjecture is relevant", body: "Codex linked it to Main Theorem." }
+    }});
+    await expect(page.locator("#editorStatus")).toContainText("Conjecture · Relevant");
+    await expect(page.locator("#codexFeedback")).toContainText("Conjecture relevance: relevant");
+    await expect(page.locator("#codexFeedback")).toContainText("Related: Main Theorem");
+    await expect(page.locator("#notificationsList")).toContainText("Conjecture is relevant");
+    await page.locator("#closeEditor").click();
+    const node = page.locator(".result-node.kind-conjecture").filter({ hasText: "LCM interval conjecture" });
+    await expect(node.locator(".kind-pill")).toHaveText(/Conjecture/);
+    await expect(node.locator(".status-pill")).toHaveText("Relevant");
   } finally {
     await context.close();
   }

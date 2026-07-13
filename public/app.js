@@ -34,7 +34,7 @@ const state = {
   pan: { x: 0, y: 0 },
   drag: null,
   activeTool: "pan",
-  filters: new Set(["validated", "pending", "imported", "conflict"])
+  filters: new Set(["validated", "pending", "imported", "conjecture", "conflict"])
 };
 
 const stage = $("#graphStage");
@@ -167,6 +167,7 @@ function relativeTime(timestamp) {
 function resultType(result) {
   if (result.status === "validated") return "validated";
   if (result.status === "imported") return "imported";
+  if (result.status === "conjecture") return "conjecture";
   if (["conflict_resolved", "rejected"].includes(result.status)) return "conflict";
   if (result.status === "draft") return "draft";
   return "pending";
@@ -176,6 +177,7 @@ function statusLabel(status) {
   return ({
     validated: "Validated",
     imported: "Imported",
+    conjecture: "Relevant",
     pending_review: "Pending review",
     conflict_resolved: "Conflict resolved",
     rejected: "Rejected",
@@ -299,6 +301,7 @@ function renderPresence(filter = $("#collaboratorSearch")?.value || "") {
 function nodeStatusIcon(type) {
   if (type === "validated") return icon("check");
   if (type === "imported") return icon("download");
+  if (type === "conjecture") return icon("lightbulb");
   if (type === "conflict") return icon("x");
   return "";
 }
@@ -313,12 +316,13 @@ function renderNodes() {
     const filtered = !state.filters.has(filterType);
     const starred = Boolean(result.starredBy?.length);
     const lock = state.locks.get(result.id);
-    return `<article class="result-node ${type} ${filtered ? "filtered" : ""}" data-node-id="${result.id}" style="left:${result.x}px;top:${result.y}px" tabindex="0">
+    const kind = result.kind || "result";
+    return `<article class="result-node ${type} kind-${kind} ${filtered ? "filtered" : ""}" data-node-id="${result.id}" style="left:${result.x}px;top:${result.y}px" tabindex="0">
       <header class="node-heading"><span class="node-status">${nodeStatusIcon(type)}</span><strong>${escapeHtml(result.title)}</strong>
         <button class="star-button ${starred ? "starred" : ""}" data-star-id="${result.id}" title="${result.starredBy?.length || 0} star${result.starredBy?.length === 1 ? "" : "s"}" aria-label="Star result">${icon("star")}</button>
       </header>
       <div class="node-body"><div class="formula" data-result-math="${result.id}"></div>
-        <div class="status-row"><span class="status-pill">${escapeHtml(statusLabel(result.status))}</span><span class="version">v${result.version || 0}.${result.draftRevision || 0}</span></div>
+        <div class="status-row">${kind === "conjecture" ? `<span class="kind-pill">${icon("lightbulb")} Conjecture</span>` : ""}<span class="status-pill">${escapeHtml(statusLabel(result.status))}</span><span class="version">v${result.version || 0}.${result.draftRevision || 0}</span></div>
         <div class="citation">${lock ? `${escapeHtml(lock.displayName)} editing` : escapeHtml(result.citation || authorName(result.createdBy))}</div>
       </div>
     </article>`;
@@ -616,7 +620,7 @@ function currentResult() {
 
 function updateEditorHeader(result) {
   $("#editorHeading").textContent = result.title;
-  $("#editorStatus").textContent = `${statusLabel(result.status)} · v${result.version || 0}.${result.draftRevision || 0}`;
+  $("#editorStatus").textContent = `${result.kind === "conjecture" ? "Conjecture · " : ""}${statusLabel(result.status)} · v${result.version || 0}.${result.draftRevision || 0}`;
   $("#editorStar").classList.toggle("starred", Boolean(result.starredBy?.length));
   $("#submitResult").disabled = result.status !== "draft";
 }
@@ -635,9 +639,12 @@ function openResult(resultId) {
   $("#resultProof").value = result.proofMarkdown || "";
   $("#resultTags").value = (result.tags || []).join(", ");
   $("#resultCitation").value = result.citation || "";
+  const kindControl = $(`input[name="resultKind"][value="${result.kind || "result"}"]`);
+  if (kindControl) kindControl.checked = true;
   $("#resultDependency").innerHTML = '<option value="">Choose a result</option>' + state.results.filter((item) => item.id !== result.id).map((item) => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join("");
   $("#resultDependency").value = result.dependencyIds?.[0] || "";
   $("#resultRelation").value = "depends_on";
+  updateContributionKindUI();
   renderEditorPreview();
   renderFeedback();
   renderRevisions();
@@ -669,21 +676,45 @@ function applyEditorLock() {
   $("#addRelationship").disabled = readOnly;
   $("#submitResult").disabled = readOnly;
   $("#lockBanner").hidden = !otherEditor && result.status === "draft";
-  $("#lockBanner").textContent = otherEditor ? `${lock.displayName} is editing. You have a read-only view.` : `${statusLabel(result.status)} results are read-only. Clone a revision to continue the argument.`;
+  $("#lockBanner").textContent = otherEditor ? `${lock.displayName} is editing. You have a read-only view.` : `${result.kind === "conjecture" ? "Reviewed conjectures" : `${statusLabel(result.status)} results`} are read-only. Clone a revision to continue the argument.`;
 }
 
 function renderEditorPreview() {
   renderStatement($("#statementPreview"), $("#resultStatement").value, true);
   renderHypothesesPreview();
-  $("#proofPreview").innerHTML = renderMarkdown($("#resultProof").value) || '<span class="empty-math">Proof preview</span>';
+  $("#proofPreview").innerHTML = renderMarkdown($("#resultProof").value) || `<span class="empty-math">${selectedContributionKind() === "conjecture" ? "Rationale preview" : "Proof preview"}</span>`;
   renderLocalChecks();
+}
+
+function selectedContributionKind() {
+  return $('input[name="resultKind"]:checked')?.value || "result";
+}
+
+function updateContributionKindUI() {
+  const conjecture = selectedContributionKind() === "conjecture";
+  $("#reasoningLabel").textContent = conjecture ? "Rationale / evidence (Markdown + LaTeX, optional)" : "Proof (Markdown + LaTeX)";
+  $("#renderedReasoningLabel").textContent = conjecture ? "Rendered rationale" : "Rendered proof";
+  $("#resultProof").required = !conjecture;
+  $("#resultProof").placeholder = conjecture ? "Explain why the conjecture may be plausible or useful. Use $...$ for inline math." : "State each step. Use $...$ for inline math and $$...$$ for display math.";
+  $("#proofPreview").setAttribute("aria-label", conjecture ? "Rendered rationale" : "Rendered proof");
+  $("#feedbackTitle").textContent = conjecture ? "Conjecture relevance check" : "Realtime proof check";
+  $("#reviewDraft").textContent = conjecture ? "Check relevance" : "Ask Codex now";
+  $("#submitResultLabel").textContent = conjecture ? "Submit conjecture for review" : "Submit for AI validation";
 }
 
 function renderLocalChecks() {
   const statement = $("#resultStatement").value.trim();
   const proof = $("#resultProof").value.trim();
   const hypotheses = $("#resultHypotheses").value.trim();
-  const checks = [
+  const conjecture = selectedContributionKind() === "conjecture";
+  const relatedId = $("#resultDependency").value;
+  const linked = Boolean(relatedId && state.edges.some((edge) => edge.sourceResultId === relatedId && edge.targetResultId === state.selectedResultId));
+  const checks = conjecture ? [
+    { pass: statement.length > 8, text: statement.length > 8 ? "Conjecture is stated precisely enough to review." : "Add a precise conjecture statement." },
+    { pass: Boolean(hypotheses) || /for all|forall|every/i.test(statement), text: "State the hypotheses and quantifier scope." },
+    { pass: linked, text: "Link the conjecture to the problem or result it advances." },
+    { pass: proof.length >= 40, text: proof.length >= 40 ? "Rationale gives Codex useful relevance context." : "Add a short rationale to improve relevance feedback." }
+  ] : [
     { pass: statement.length > 8, text: statement.length > 8 ? "Statement is present and renderable." : "Add a precise mathematical statement." },
     { pass: proof.length >= 80, text: proof.length >= 80 ? "Proof has enough detail for AI review." : "Expand the proof beyond a short assertion." },
     { pass: /because|since|therefore|hence|implies|apply|assume|suppose/i.test(proof), text: "Make logical transitions and invoked results explicit." },
@@ -697,7 +728,7 @@ function renderFeedback() {
   if (!result) return;
   const feedback = state.draftFeedback.filter((item) => item.resultId === result.id && item.status === "current").sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   const review = state.reviews.filter((item) => item.resultId === result.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  const source = feedback || review;
+  const source = [feedback, review].filter(Boolean).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   if (!source) {
     $("#codexFeedback").innerHTML = state.pendingWorkCount ? '<article><h4>Codex review queued</h4><p>The local agent can claim this work through the review command endpoints.</p></article>' : "";
     return;
@@ -705,7 +736,11 @@ function renderFeedback() {
   const issues = (source.issues || []).map((issue) => typeof issue === "string" ? issue : issue.message || issue.description || JSON.stringify(issue));
   const checks = (source.proofStepChecks || []).filter((check) => check.status && check.status !== "pass").map((check) => check.explanation || check.summary || `Step ${check.stepId || ""} needs attention`);
   const allIssues = [...issues, ...checks];
-  $("#codexFeedback").innerHTML = `<article><h4>${review ? `Validation: ${escapeHtml(review.decision.replace("_", " "))}` : "Codex draft feedback"}</h4><p>${escapeHtml(source.summary || "Review completed.")}</p>${allIssues.length ? `<ul>${allIssues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>` : ""}</article>`;
+  const sourceIsReview = source === review;
+  const relevance = source.relevanceAssessment || (sourceIsReview && review.reviewType === "conjecture_relevance" ? { verdict: review.decision, explanation: review.relevanceExplanation, relatedResultIds: review.relatedResultIds } : null);
+  const relatedNames = (relevance?.relatedResultIds || source.relevantResultIds || []).map((id) => state.results.find((item) => item.id === id)?.title).filter(Boolean);
+  const heading = sourceIsReview && review.reviewType === "conjecture_relevance" ? `Conjecture relevance: ${review.decision.replace("_", " ")}` : sourceIsReview ? `Validation: ${review.decision.replace("_", " ")}` : "Codex draft feedback";
+  $("#codexFeedback").innerHTML = `<article><h4>${escapeHtml(heading)}</h4><p>${escapeHtml(source.summary || "Review completed.")}</p>${relevance ? `<div class="relevance-result ${escapeHtml(relevance.verdict)}"><strong>Relevance: ${escapeHtml(relevance.verdict.replace("_", " "))}</strong><p>${escapeHtml(relevance.explanation || "")}</p>${relatedNames.length ? `<small>Related: ${escapeHtml(relatedNames.join(", "))}</small>` : ""}</div>` : ""}${allIssues.length ? `<ul>${allIssues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>` : ""}</article>`;
 }
 
 function renderRevisions() {
@@ -748,6 +783,7 @@ async function saveEditor() {
   try {
     const updated = await api(`/api/results/${result.id}`, { method: "PATCH", body: {
       title: $("#resultTitle").value.trim() || "Untitled result",
+      kind: selectedContributionKind(),
       statementLatex: $("#resultStatement").value,
       hypothesesLatex: $("#resultHypotheses").value.split("\n").map((line) => line.trim()).filter(Boolean),
       proofMarkdown: $("#resultProof").value,
@@ -764,9 +800,9 @@ async function saveEditor() {
   }
 }
 
-async function createResult() {
+async function createResult(kind = "result") {
   try {
-    const result = await api("/api/results", { method: "POST", body: { spaceId: state.space.id, title: "Untitled result", x: 390, y: 330 } });
+    const result = await api("/api/results", { method: "POST", body: { spaceId: state.space.id, kind, title: kind === "conjecture" ? "Untitled conjecture" : "Untitled result", x: 390, y: 330 } });
     upsert(state.results, result);
     renderNodes();
     openResult(result.id);
@@ -798,6 +834,7 @@ async function addRelationship() {
       upsert(state.results, updated);
     }
     renderEdges();
+    renderLocalChecks();
     showToast("Graph relation added");
   } catch (error) { showToast(error.message, "error"); }
 }
@@ -809,14 +846,15 @@ async function requestDraftReview() {
     state.pendingWorkCount += 1;
     renderAgentStatus();
     renderFeedback();
-    showToast("Draft review queued for Codex");
+    showToast(currentResult()?.kind === "conjecture" ? "Conjecture relevance check queued" : "Draft review queued for Codex");
   } catch (error) { showToast(error.message, "error"); }
 }
 
 async function submitCurrentResult() {
   try {
     const result = await saveEditor();
-    if (!result.statementLatex.trim() || !result.proofMarkdown.trim()) return showToast("Add a statement and proof before submitting.", "error");
+    if (!result.statementLatex.trim()) return showToast("Add a mathematical statement before submitting.", "error");
+    if (result.kind !== "conjecture" && !result.proofMarkdown.trim()) return showToast("Add a statement and proof before submitting.", "error");
     const payload = await api(`/api/results/${result.id}/submit`, { method: "POST", body: {} });
     upsert(state.results, payload.result);
     if (payload.result.submittedRevisionId) state.revisions.push({ id: payload.result.submittedRevisionId, resultId: payload.result.id, revisionNumber: payload.result.version, status: payload.result.status, snapshot: payload.result, createdAt: new Date().toISOString() });
@@ -825,7 +863,7 @@ async function submitCurrentResult() {
     applyEditorLock();
     renderNodes();
     renderRevisions();
-    showToast("Submitted revision queued for AI validation");
+    showToast(result.kind === "conjecture" ? "Conjecture queued for relevance review" : "Submitted revision queued for AI validation");
   } catch (error) { showToast(error.message, "error"); }
 }
 
@@ -851,7 +889,7 @@ async function actOnSuggestion(id, action) {
 }
 
 function notificationIcon(type) {
-  return ({ validation: "badge-check", relevance: "network", draft_feedback: "sparkles", agent_failed: "circle-alert" })[type] || "bell";
+  return ({ validation: "badge-check", relevance: "network", conjecture_review: "lightbulb", draft_feedback: "sparkles", agent_failed: "circle-alert" })[type] || "bell";
 }
 
 function renderNotifications() {
@@ -992,7 +1030,21 @@ function bindEvents() {
   $("#workspaceMenu").addEventListener("click", () => $("#workspacePopover").classList.toggle("open"));
   $("#copyInvite").addEventListener("click", copyInvite);
   $("#copySpaceUrl").addEventListener("click", copyInvite);
-  $("#newResult").addEventListener("click", createResult);
+  $("#newResult").addEventListener("click", () => {
+    $("#creationPopover").hidden = true;
+    $("#creationMenuToggle").setAttribute("aria-expanded", "false");
+    createResult("result");
+  });
+  $("#creationMenuToggle").addEventListener("click", () => {
+    const popover = $("#creationPopover");
+    popover.hidden = !popover.hidden;
+    $("#creationMenuToggle").setAttribute("aria-expanded", String(!popover.hidden));
+  });
+  $("#newConjecture").addEventListener("click", () => {
+    $("#creationPopover").hidden = true;
+    $("#creationMenuToggle").setAttribute("aria-expanded", "false");
+    createResult("conjecture");
+  });
   $("#fitView").addEventListener("click", fitStage);
   $("#layoutButton").addEventListener("click", async () => {
     try {
@@ -1007,10 +1059,14 @@ function bindEvents() {
   $$("#filterPopover input").forEach((input) => input.addEventListener("change", () => {
     input.checked ? state.filters.add(input.value) : state.filters.delete(input.value);
     renderNodes();
-    $("#activeFilterCount").textContent = state.filters.size < 3 ? String(3 - state.filters.size) : "";
+    const hiddenCount = $$("#filterPopover input:not(:checked)").length;
+    $("#activeFilterCount").textContent = hiddenCount ? String(hiddenCount) : "";
+    $("#activeFilterCount").classList.toggle("visible", hiddenCount > 0);
   }));
   $("#clearFilters").addEventListener("click", () => {
     $$("#filterPopover input").forEach((input) => { input.checked = true; state.filters.add(input.value); });
+    $("#activeFilterCount").textContent = "";
+    $("#activeFilterCount").classList.remove("visible");
     renderNodes();
   });
   $("#collaboratorSearch").addEventListener("input", (event) => renderPresence(event.target.value));
@@ -1032,9 +1088,11 @@ function bindEvents() {
   editorScrim.addEventListener("click", closeEditor);
   $$('[data-editor-tab]').forEach((button) => button.addEventListener("click", () => selectEditorTab(button.dataset.editorTab)));
   $$("#resultForm input, #resultForm textarea").forEach((input) => input.addEventListener("input", () => {
+    if (input.name === "resultKind") updateContributionKindUI();
     renderEditorPreview();
     scheduleSave();
   }));
+  $("#resultDependency").addEventListener("change", renderLocalChecks);
   $("#editorStar").addEventListener("click", async () => {
     const result = await api(`/api/results/${state.selectedResultId}/star`, { method: "POST", body: {} });
     upsert(state.results, result);

@@ -104,3 +104,42 @@ test("join, author, coach, validate, notify, star, and preserve revision history
     assert.equal(loggedOut.status, 401);
   });
 });
+
+test("conjectures are reviewed for relevance without requiring a proof", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const author = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Conjecture Author", pin: "8642" } });
+    const initial = await request(baseUrl, `/api/bootstrap?spaceId=${author.space.id}`, { token: author.token });
+    const root = initial.results.find((item) => item.id === "result-main");
+    let conjecture = await request(baseUrl, "/api/results", { token: author.token, method: "POST", body: { spaceId: author.space.id, kind: "conjecture", title: "Sharper logarithmic gap" } });
+    conjecture = await request(baseUrl, `/api/results/${conjecture.id}`, { token: author.token, method: "PATCH", body: {
+      statementLatex: "\\lambda_1(G) \\ge 2c \\log |G|",
+      hypothesesLatex: ["G \\text{ is in the target Cayley family}"],
+      dependencyIds: [root.id], tags: ["spectral-gap", "conjecture"]
+    }});
+    assert.equal(conjecture.kind, "conjecture");
+    assert.equal(conjecture.proofMarkdown, "");
+
+    const submitted = await request(baseUrl, `/api/results/${conjecture.id}/submit`, { token: author.token, method: "POST", body: {} });
+    assert.equal(submitted.work.type, "review_conjecture");
+    const claimed = await request(baseUrl, "/api/internal/work/next", { method: "POST", body: {} });
+    assert.equal(claimed.work.type, "review_conjecture");
+    const context = await request(baseUrl, `/api/internal/work/${claimed.work.id}/context`);
+    assert.equal(context.relatedCandidates.some((item) => item.id === root.id && item.statementLatex), true);
+
+    await request(baseUrl, `/api/internal/work/${claimed.work.id}/conjecture-review`, { method: "POST", body: {
+      submittedRevisionId: submitted.result.submittedRevisionId,
+      decision: "relevant",
+      summary: "The conjecture directly strengthens the theorem-space target.",
+      relevanceExplanation: "It preserves the graph family and improves the same spectral lower bound.",
+      relatedResultIds: [root.id], issues: [], confidence: 91,
+      notification: { title: "Conjecture is relevant", body: "Codex connected it to Main Theorem." }
+    }});
+
+    const bootstrap = await request(baseUrl, `/api/bootstrap?spaceId=${author.space.id}`, { token: author.token });
+    const reviewed = bootstrap.results.find((item) => item.id === conjecture.id);
+    assert.equal(reviewed.status, "conjecture");
+    assert.equal(reviewed.relevanceStatus, "relevant");
+    assert.equal(bootstrap.reviews.some((item) => item.resultId === conjecture.id && item.reviewType === "conjecture_relevance" && item.relatedResultIds.includes(root.id)), true);
+    assert.equal(bootstrap.notifications.some((item) => item.type === "conjecture_review"), true);
+  });
+});

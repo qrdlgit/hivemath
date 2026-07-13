@@ -83,7 +83,7 @@ export async function createMathHiveServer(options = {}) {
   app.post("/api/results", asyncRoute(async (req, res) => res.status(201).json(await store.createResult(req.token, req.body || {}))));
   app.patch("/api/results/:id", asyncRoute(async (req, res) => {
     const result = await store.updateResult(req.token, req.params.id, req.body || {});
-    if (["title", "statementLatex", "hypothesesLatex", "proofMarkdown", "tags", "dependencyIds", "citation", "bibtex"].some((field) => field in req.body)) {
+    if (["kind", "title", "statementLatex", "hypothesesLatex", "proofMarkdown", "tags", "dependencyIds", "citation", "bibtex"].some((field) => field in req.body)) {
       store.scheduleDraftReview(result.id);
     }
     res.json(result);
@@ -116,6 +116,7 @@ export async function createMathHiveServer(options = {}) {
   app.post("/api/internal/work/:id/research-context", (req, res) => res.json(store.researchContext(req.params.id, req.body || {})));
   app.post("/api/internal/work/:id/draft-review", asyncRoute(async (req, res) => res.json(await store.submitDraftReview({ ...req.body, workId: req.params.id }))));
   app.post("/api/internal/work/:id/validation", asyncRoute(async (req, res) => res.json(await store.submitValidation({ ...req.body, workId: req.params.id }))));
+  app.post("/api/internal/work/:id/conjecture-review", asyncRoute(async (req, res) => res.json(await store.submitConjectureReview({ ...req.body, workId: req.params.id }))));
   app.post("/api/internal/work/:id/integrations", asyncRoute(async (req, res) => res.json(await store.submitIntegrations({ ...req.body, workId: req.params.id }))));
   app.post("/api/internal/work/:id/fail", asyncRoute(async (req, res) => res.json(await store.failWork({ ...req.body, workId: req.params.id }))));
   app.get("/api/internal/projection/:spaceId", (req, res) => res.json(store.inspectProjection(req.params.spaceId)));
