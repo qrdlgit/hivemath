@@ -41,11 +41,17 @@
             <span class="avatar avatar-count">+4</span>
           </div>
           <span class="online-count"><span class="online-dot"></span><span id="onlineCount">18 online</span></span>
-          <button class="icon-button" title="Search" aria-label="Search"><i data-lucide="search"></i></button>
+          <button class="icon-button" id="topSearch" title="Search" aria-label="Search"><i data-lucide="search"></i></button>
           <button class="icon-button notification-trigger" id="notificationTrigger" title="Notifications" aria-label="Notifications">
             <i data-lucide="bell"></i><span class="notification-badge" id="notificationBadge">7</span>
           </button>
-          <button class="icon-button" id="profileButton" title="Your profile" aria-label="Your profile"><i data-lucide="user-round"></i></button>
+          <div class="profile-menu-wrap">
+            <button class="icon-button" id="profileButton" title="Your profile" aria-label="Your profile" aria-expanded="false"><i data-lucide="user-round"></i></button>
+            <div class="profile-popover" id="profilePopover" role="menu" hidden>
+              <div class="profile-summary"><strong id="profileMenuName">Account</strong><span id="profileMenuSpace">Workspace</span></div>
+              <button class="logout-button" id="logoutButton" role="menuitem"><i data-lucide="log-out"></i><span>Log out</span></button>
+            </div>
+          </div>
         </div>
       </header>
 

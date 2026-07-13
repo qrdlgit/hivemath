@@ -82,6 +82,11 @@ test("two mathematicians collaborate, receive MCP-style coaching, and validate a
     await expect(ada.locator("#suggestionsList")).toContainText("Connect the validated equality result");
     await ada.getByRole("button", { name: "Integrate" }).click();
     await expect(ada.locator("#suggestionsList")).not.toContainText("Connect the validated equality result");
+    await ada.getByRole("button", { name: "Your profile" }).click();
+    await expect(ada.locator("#profilePopover")).toContainText("Ada Browser");
+    await ada.getByRole("menuitem", { name: "Log out" }).click();
+    await expect(ada.locator("#joinGate")).toBeVisible();
+    expect(await ada.evaluate(() => localStorage.getItem("mathhive.token"))).toBeNull();
   } finally {
     await firstContext.close();
     await secondContext.close();

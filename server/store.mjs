@@ -192,6 +192,14 @@ export class MathHiveStore extends EventEmitter {
     return auth;
   }
 
+  async logout(token) {
+    const { session } = this.requireSession(token);
+    return this.mutate((data) => {
+      data.sessions = data.sessions.filter((item) => item.id !== session.id);
+      return { result: { ok: true }, events: [] };
+    });
+  }
+
   bootstrap({ token, spaceId }) {
     const { profile } = this.requireSession(token);
     const space = this.getSpace(spaceId || profile.activeSpaceId) || this.data.spaces[0];

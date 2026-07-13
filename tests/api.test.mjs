@@ -96,5 +96,8 @@ test("join, author, coach, validate, notify, star, and preserve revision history
     assert.equal(emmyBootstrap.results.some((item) => item.sourceResultId === result.id && item.status === "imported"), true);
     const projection = await request(baseUrl, `/api/internal/projection/${ada.space.id}`);
     assert.deepEqual(projection.warnings, []);
+    await request(baseUrl, "/api/logout", { token: ada.token, method: "POST", body: {} });
+    const loggedOut = await fetch(`${baseUrl}/api/bootstrap`, { headers: { Authorization: `Bearer ${ada.token}` } });
+    assert.equal(loggedOut.status, 401);
   });
 });

@@ -207,6 +207,8 @@ function renderAll() {
 function renderWorkspace() {
   if (!state.space) return;
   $("#workspaceTitle").textContent = state.space.name;
+  $("#profileMenuName").textContent = state.profile.displayName;
+  $("#profileMenuSpace").textContent = state.space.name;
   const online = Math.max(1, new Set(state.presence.map((person) => person.profileId)).size);
   $("#onlineCount").textContent = `${online} online`;
 }
@@ -823,6 +825,22 @@ async function copyInvite() {
   }
 }
 
+async function logout() {
+  const button = $("#logoutButton");
+  button.disabled = true;
+  try {
+    await api("/api/logout", { method: "POST", body: {} });
+  } catch (error) {
+    if (error.status !== 401) showToast("Server logout failed; this browser will still be signed out.", "error");
+  } finally {
+    state.token = null;
+    clearTimeout(state.reconnectTimer);
+    state.socket?.close();
+    localStorage.removeItem("mathhive.token");
+    location.reload();
+  }
+}
+
 function bindEvents() {
   $("#joinForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -873,7 +891,12 @@ function bindEvents() {
   $("#markAllRead").addEventListener("click", () => readNotifications(null));
   $("#viewActivity").addEventListener("click", () => { $("#activityModal").hidden = false; });
   $("#closeActivity").addEventListener("click", () => { $("#activityModal").hidden = true; });
-  $("#profileButton").addEventListener("click", () => showToast(`${state.profile.displayName} · ${state.space.name}`));
+  $("#profileButton").addEventListener("click", () => {
+    const popover = $("#profilePopover");
+    popover.hidden = !popover.hidden;
+    $("#profileButton").setAttribute("aria-expanded", String(!popover.hidden));
+  });
+  $("#logoutButton").addEventListener("click", logout);
 
   $("#closeEditor").addEventListener("click", closeEditor);
   editorScrim.addEventListener("click", closeEditor);
