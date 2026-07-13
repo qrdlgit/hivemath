@@ -28,7 +28,7 @@ const server = new McpServer({ name: "mathhive-poc", version: "0.1.0" }, {
   instructions: [
     "You are the sole mathematical review and integration agent for the local MathHive POC.",
     "Poll get_next_work. For every claimed item, get its full context, reason through the mathematics yourself, then submit exactly one matching completion command.",
-    "For validation, restate the claim, check hypotheses, dependencies, and every proof step. For Proof contributions, compare the proof against proofTarget and return provesEdge.id so the server can verify that exact edge. Do not mark a proof validated merely because it is plausible.",
+    "For validation, restate the claim, check hypotheses, dependencies, and every proof step. For Proof and Counterexample contributions, compare against relationTarget and return verificationEdge.id so the server can verify that exact edge. Explicitly decide whether linked task work is complete or should stay open.",
     "For conjectures, assess precision and relevance to the theorem space. Conjectures are not proofs and must never be marked validated.",
     "For integration work, search other spaces, inspect full proofs of promising candidates, identify affected active authors, and submit targeted notifications plus executable graph/import changes.",
     "Use inspect_projection after commands that change graph content. If work cannot be completed, call fail_work so its lease does not remain claimed."
@@ -59,7 +59,7 @@ registerWriteTool("get_next_work", {
 }, async () => result(await command("/api/internal/work/next", { method: "POST", body: {} })));
 
 registerReadTool("get_work_context", {
-  description: "Load the exact result/revision, proof steps, hypotheses, dependencies, prior feedback, author, graph warnings, and any proposed proves edge with its frozen target conjecture.",
+  description: "Load the exact result/revision, task assignment, root problem, participants, proof steps, hypotheses, dependencies, prior feedback, graph warnings, and proposed proves/refutes edge with its frozen target conjecture.",
   inputSchema: { workId: z.string().uuid() }
 }, async ({ workId }) => result(await command(`/api/internal/work/${workId}/context`)));
 
@@ -93,6 +93,10 @@ registerWriteTool("submit_draft_review", {
       explanation: z.string().min(1),
       relatedResultIds: z.array(z.string()).max(12).default([])
     }),
+    taskAlignment: z.object({
+      verdict: z.enum(["addresses_task", "partially_addresses_task", "outside_task"]),
+      explanation: z.string().min(1)
+    }).optional(),
     notification: z.object({ title: z.string().min(1), body: z.string().min(1) })
   }
 }, async ({ workId, ...body }) => result(await command(`/api/internal/work/${workId}/draft-review`, { method: "POST", body })));
@@ -125,20 +129,26 @@ const stepCheckSchema = z.object({
 });
 
 registerWriteTool("submit_validation", {
-  description: "Submit Codex's manual review of a frozen revision. For Proof contributions, provesEdgeId is required; validation verifies that edge and promotes its target conjecture to Proved.",
+  description: "Submit Codex's manual review of a frozen revision and explicit task outcome. Proof/Counterexample validation verifies the exact edge and promotes the target conjecture to Proved/Refuted.",
   inputSchema: {
     workId: z.string().uuid(),
     submittedRevisionId: z.string().min(1),
+    verificationEdgeId: z.string().uuid().nullable().default(null),
     provesEdgeId: z.string().uuid().nullable().default(null),
+    refutesEdgeId: z.string().uuid().nullable().default(null),
     decision: z.enum(["validated", "needs_changes", "rejected"]),
     claimRestatement: z.string().min(1),
     summary: z.string().min(1),
     assumptionChecks: z.array(checkSchema).max(30),
     proofStepChecks: z.array(stepCheckSchema).max(80),
+    counterexampleChecks: z.array(checkSchema).max(40).default([]),
     dependencyChecks: z.array(checkSchema).max(30),
     counterexampleRisks: z.array(z.string()).max(20),
     issues: z.array(issueSchema).max(20),
     confidence: z.number().min(0).max(100),
+    taskId: z.string().uuid().nullable().default(null),
+    taskOutcome: z.enum(["complete", "keep_open"]).nullable().default(null),
+    taskRationale: z.string().default(""),
     notification: z.object({ title: z.string().min(1), body: z.string().min(1) })
   }
 }, async ({ workId, ...body }) => result(await command(`/api/internal/work/${workId}/validation`, { method: "POST", body })));
@@ -154,6 +164,8 @@ registerWriteTool("submit_integrations", {
       title: z.string().min(1),
       explanation: z.string().min(1),
       confidence: z.number().min(0).max(100),
+      taskId: z.string().uuid().nullable().default(null),
+      scope: z.enum(["within_task", "blueprint_change"]).default("blueprint_change"),
       sourceResultIds: z.array(z.string()).max(10).default([]),
       targetResultIds: z.array(z.string()).max(10).default([]),
       audienceUserIds: z.array(z.string()).max(20).default([]),

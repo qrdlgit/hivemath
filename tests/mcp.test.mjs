@@ -20,7 +20,8 @@ test("MCP polls, claims context, and pushes draft feedback into MathHive", async
   const joinResponse = await fetch(`${baseUrl}/api/join`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inviteSlug: "spectral-gap", displayName: "MCP Author", pin: "2468" }) });
   const joined = await joinResponse.json();
   const headers = { Authorization: `Bearer ${joined.token}`, "Content-Type": "application/json" };
-  const created = await (await fetch(`${baseUrl}/api/results`, { method: "POST", headers, body: JSON.stringify({ spaceId: joined.space.id, title: "MCP lemma" }) })).json();
+  const task = await (await fetch(`${baseUrl}/api/tasks`, { method: "POST", headers, body: JSON.stringify({ spaceId: joined.space.id, title: "MCP equality task", goal: "Produce and validate a foundational equality lemma.", priority: "normal" }) })).json();
+  const created = await (await fetch(`${baseUrl}/api/results`, { method: "POST", headers, body: JSON.stringify({ spaceId: joined.space.id, taskId: task.id, title: "MCP lemma" }) })).json();
   const draft = await (await fetch(`${baseUrl}/api/results/${created.id}`, { method: "PATCH", headers, body: JSON.stringify({ statementLatex: "x=x", proofMarkdown: "By reflexivity of equality, every mathematical object is equal to itself, so the stated equality follows immediately." }) })).json();
   await fetch(`${baseUrl}/api/results/${created.id}/draft-review`, { method: "POST", headers, body: "{}" });
 
@@ -37,10 +38,13 @@ test("MCP polls, claims context, and pushes draft feedback into MathHive", async
     assert.equal(next.work.type, "review_draft");
     const context = parsed(await client.callTool({ name: "get_work_context", arguments: { workId: next.work.id } }));
     assert.equal(context.result.id, created.id);
+    assert.equal(context.task.id, task.id);
+    assert.equal(context.rootProblem.id, "result-main");
     const completed = parsed(await client.callTool({ name: "submit_draft_review", arguments: {
       workId: next.work.id, draftRevision: draft.draftRevision,
       summary: "The reflexivity argument proves the statement.", issues: [], relevantResultIds: [],
       relevanceAssessment: { verdict: "relevant", explanation: "The equality lemma is relevant to the workspace's active foundational results.", relatedResultIds: [] },
+      taskAlignment: { verdict: "addresses_task", explanation: "The draft supplies the exact equality lemma requested by the assignment." },
       notification: { title: "MCP review ready", body: "The argument is valid as written." }
     } }));
     assert.equal(completed.stale, false);
@@ -57,13 +61,20 @@ test("MCP polls, claims context, and pushes draft feedback into MathHive", async
       assumptionChecks: [{ subject: "object x", status: "pass", explanation: "Reflexivity applies to every object." }],
       proofStepChecks: [{ stepId: "step-1", status: "pass", explanation: "The sole step invokes equality reflexivity." }],
       dependencyChecks: [], counterexampleRisks: [], issues: [], confidence: 99,
+      taskId: task.id, taskOutcome: "complete", taskRationale: "The validated equality lemma satisfies the exploratory assignment.",
       notification: { title: "MCP validation ready", body: "The proof is valid." }
     } }));
     const integrationWork = parsed(await client.callTool({ name: "get_next_work", arguments: {} }));
     assert.equal(integrationWork.work.type, "suggest_integrations");
     const research = parsed(await client.callTool({ name: "search_research_context", arguments: { workId: integrationWork.work.id, tags: ["equality"], resultIds: [], limit: 20 } }));
     assert.equal(Array.isArray(research.items), true);
-    parsed(await client.callTool({ name: "submit_integrations", arguments: { workId: integrationWork.work.id, suggestions: [], notifications: [] } }));
+    parsed(await client.callTool({ name: "submit_integrations", arguments: { workId: integrationWork.work.id, suggestions: [{
+      type: "relevance", title: "Reuse the equality lemma", explanation: "The validated lemma can be reused inside the accepted equality assignment.", confidence: 98,
+      taskId: task.id, scope: "within_task", sourceResultIds: [created.id], targetResultIds: [created.id], audienceUserIds: [joined.profile.id], proposedChanges: [], evidence: ["The result is the validated output of this task."]
+    }], notifications: [] } }));
+    const scopedBootstrap = await (await fetch(`${baseUrl}/api/bootstrap?spaceId=${joined.space.id}`, { headers: { Authorization: `Bearer ${joined.token}` } })).json();
+    assert.equal(scopedBootstrap.tasks.find((item) => item.id === task.id).status, "done");
+    assert.equal(scopedBootstrap.suggestions.find((item) => item.taskId === task.id).scope, "within_task");
     const projection = parsed(await client.callTool({ name: "inspect_projection", arguments: { spaceId: joined.space.id } }));
     assert.deepEqual(projection.warnings, []);
 

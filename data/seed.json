@@ -1,13 +1,43 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "storeRevision": 0,
   "profiles": [],
   "sessions": [],
   "spaces": [
-    { "id": "space-spectral", "inviteSlug": "spectral-gap", "name": "Spectral Gap Program", "description": "Collaborative work on spectral gaps and expanders.", "createdAt": "2026-07-01T09:00:00.000Z" },
+    { "id": "space-spectral", "inviteSlug": "spectral-gap", "name": "Spectral Gap Program", "description": "Collaborative work on spectral gaps and expanders.", "rootResultId": "result-main", "pendingLeadProfileId": null, "createdBy": "seed", "createdAt": "2026-07-01T09:00:00.000Z" },
     { "id": "space-representations", "inviteSlug": "group-representations", "name": "Group Representations", "description": "Representation theoretic techniques and lemmas.", "createdAt": "2026-07-01T09:00:00.000Z" },
     { "id": "space-geometry", "inviteSlug": "algebraic-geometry", "name": "Algebraic Geometry", "description": "Imported geometric results and topology links.", "createdAt": "2026-07-01T09:00:00.000Z" },
     { "id": "space-number", "inviteSlug": "analytic-number-theory", "name": "Analytic Number Theory", "description": "Analytic estimates and number theoretic branches.", "createdAt": "2026-07-01T09:00:00.000Z" }
+  ],
+  "memberships": [],
+  "tasks": [
+    {
+      "id": "task-main-closure", "spaceId": "space-spectral", "title": "Close the main theorem argument",
+      "goal": "Audit the remaining dependency chain and produce a validated contribution that closes the root argument.",
+      "priority": "high", "status": "open", "sortOrder": 0, "parentTaskId": null, "targetResultId": "result-main",
+      "expectedRelation": "supports", "outputResultIds": [], "approvalState": "official", "proposedBy": null,
+      "primaryContributorId": null, "collaboratorIds": [], "pendingVolunteerIds": [], "invitedProfileIds": [],
+      "blockedReason": "", "createdBy": "seed", "updatedBy": "seed", "completedBy": null,
+      "createdAt": "2026-07-11T08:10:00.000Z", "updatedAt": "2026-07-11T08:10:00.000Z", "completedAt": null
+    },
+    {
+      "id": "task-bound-proof", "spaceId": "space-spectral", "title": "Complete the Bound 3.2 proof",
+      "goal": "Resolve the equality case and submit a complete proof of the pending expansion bound.",
+      "priority": "normal", "status": "open", "sortOrder": 1, "parentTaskId": "task-main-closure", "targetResultId": "result-bound",
+      "expectedRelation": "supports", "outputResultIds": [], "approvalState": "official", "proposedBy": null,
+      "primaryContributorId": null, "collaboratorIds": [], "pendingVolunteerIds": [], "invitedProfileIds": [],
+      "blockedReason": "", "createdBy": "seed", "updatedBy": "seed", "completedBy": null,
+      "createdAt": "2026-07-11T08:20:00.000Z", "updatedAt": "2026-07-11T08:20:00.000Z", "completedAt": null
+    },
+    {
+      "id": "task-conjecture", "spaceId": "space-spectral", "title": "Resolve the Cheeger-family conjecture",
+      "goal": "Develop either a proof or a concrete counterexample for the narrowed graph-family conjecture.",
+      "priority": "exploratory", "status": "open", "sortOrder": 2, "parentTaskId": "task-main-closure", "targetResultId": "result-conjecture",
+      "expectedRelation": "proves", "outputResultIds": [], "approvalState": "official", "proposedBy": null,
+      "primaryContributorId": null, "collaboratorIds": [], "pendingVolunteerIds": [], "invitedProfileIds": [],
+      "blockedReason": "", "createdBy": "seed", "updatedBy": "seed", "completedBy": null,
+      "createdAt": "2026-07-11T08:30:00.000Z", "updatedAt": "2026-07-11T08:30:00.000Z", "completedAt": null
+    }
   ],
   "results": [
     {
@@ -129,16 +159,16 @@
   "revisions": [],
   "draftFeedback": [],
   "edges": [
-    { "id": "edge-lemma-main", "spaceId": "space-spectral", "sourceResultId": "result-lemma", "targetResultId": "result-main", "relation": "depends_on", "createdBy": "seed", "createdAt": "2026-07-03T10:00:00.000Z" },
-    { "id": "edge-bound-main", "spaceId": "space-spectral", "sourceResultId": "result-bound", "targetResultId": "result-main", "relation": "depends_on", "createdBy": "seed", "createdAt": "2026-07-07T11:00:00.000Z" },
+    { "id": "edge-lemma-main", "spaceId": "space-spectral", "sourceResultId": "result-main", "targetResultId": "result-lemma", "relation": "uses", "createdBy": "seed", "createdAt": "2026-07-03T10:00:00.000Z" },
+    { "id": "edge-bound-main", "spaceId": "space-spectral", "sourceResultId": "result-main", "targetResultId": "result-bound", "relation": "uses", "createdBy": "seed", "createdAt": "2026-07-07T11:00:00.000Z" },
     { "id": "edge-mix-main", "spaceId": "space-spectral", "sourceResultId": "result-mix", "targetResultId": "result-main", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-08T09:00:00.000Z" },
-    { "id": "edge-poincare-lemma", "spaceId": "space-spectral", "sourceResultId": "result-poincare", "targetResultId": "result-lemma", "relation": "depends_on", "createdBy": "seed", "createdAt": "2026-07-03T10:00:00.000Z" },
+    { "id": "edge-poincare-lemma", "spaceId": "space-spectral", "sourceResultId": "result-lemma", "targetResultId": "result-poincare", "relation": "uses", "createdBy": "seed", "createdAt": "2026-07-03T10:00:00.000Z" },
     { "id": "edge-conjecture-bound", "spaceId": "space-spectral", "sourceResultId": "result-conjecture", "targetResultId": "result-bound", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-07T11:00:00.000Z" },
     { "id": "edge-topology-mix", "spaceId": "space-spectral", "sourceResultId": "result-topology", "targetResultId": "result-mix", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-09T08:00:00.000Z" },
-    { "id": "edge-number-poincare", "spaceId": "space-spectral", "sourceResultId": "result-number", "targetResultId": "result-poincare", "relation": "contributes_to", "createdBy": "seed", "createdAt": "2026-07-08T08:00:00.000Z" },
+    { "id": "edge-number-poincare", "spaceId": "space-spectral", "sourceResultId": "result-number", "targetResultId": "result-poincare", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-08T08:00:00.000Z" },
     { "id": "edge-review-poincare", "spaceId": "space-spectral", "sourceResultId": "result-review", "targetResultId": "result-poincare", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-11T09:00:00.000Z" },
     { "id": "edge-proof-conjecture", "spaceId": "space-spectral", "sourceResultId": "result-proof", "targetResultId": "result-conjecture", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-10T09:00:00.000Z" },
-    { "id": "edge-proof-topology", "spaceId": "space-spectral", "sourceResultId": "result-proof", "targetResultId": "result-topology", "relation": "depends_on", "createdBy": "seed", "createdAt": "2026-07-10T09:00:00.000Z" }
+    { "id": "edge-proof-topology", "spaceId": "space-spectral", "sourceResultId": "result-topology", "targetResultId": "result-proof", "relation": "uses", "createdBy": "seed", "createdAt": "2026-07-10T09:00:00.000Z" }
   ],
   "reviews": [],
   "comments": [],

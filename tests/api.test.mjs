@@ -21,6 +21,17 @@ async function request(baseUrl, path, { token, method = "GET", body } = {}) {
   return payload;
 }
 
+async function requestFailure(baseUrl, path, { token, method = "GET", body, status }) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const payload = await response.json();
+  assert.equal(response.status, status, JSON.stringify(payload));
+  return payload;
+}
+
 test("join, author, coach, validate, notify, star, and preserve revision history", async () => {
   await withServer(async ({ baseUrl }) => {
     const ada = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Ada Test", pin: "1234" } });
@@ -181,5 +192,124 @@ test("conjectures are reviewed for relevance without requiring a proof", async (
     assert.equal(provedBootstrap.results.find((item) => item.id === proof.id).status, "validated");
     assert.equal(provedBootstrap.edges.find((item) => item.id === provesEdge.id).verificationStatus, "verified");
     assert.equal(provedBootstrap.notifications.some((item) => item.type === "conjecture_proved" && item.entityId === conjecture.id), true);
+  });
+});
+
+test("lead blueprint, accepted volunteering, scoped work, proposals, and task completion", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const lead = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Blueprint Lead", pin: "1111" } });
+    const contributor = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Scoped Contributor", pin: "2222" } });
+    const observer = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Observing Member", pin: "3333" } });
+    assert.equal(lead.membership.role, "lead");
+    assert.equal(contributor.membership.role, "contributor");
+
+    const initial = await request(baseUrl, `/api/bootstrap?spaceId=${lead.space.id}`, { token: lead.token });
+    const root = initial.results.find((item) => item.id === "result-main");
+    await requestFailure(baseUrl, "/api/results", { token: contributor.token, method: "POST", status: 403, body: { spaceId: lead.space.id, title: "Unscoped result" } });
+
+    const task = await request(baseUrl, "/api/tasks", { token: lead.token, method: "POST", body: {
+      spaceId: lead.space.id, title: "Supply a supporting spectral lemma", goal: "Produce a checked lemma that directly supports the root theorem.",
+      priority: "high", targetResultId: root.id, expectedRelation: "supports"
+    } });
+    await request(baseUrl, `/api/tasks/${task.id}/volunteer`, { token: contributor.token, method: "POST", body: {} });
+    await requestFailure(baseUrl, "/api/results", { token: contributor.token, method: "POST", status: 403, body: { spaceId: lead.space.id, taskId: task.id, title: "Premature result" } });
+    let leadView = await request(baseUrl, `/api/bootstrap?spaceId=${lead.space.id}`, { token: lead.token });
+    assert.deepEqual(leadView.tasks.find((item) => item.id === task.id).pendingVolunteerIds, [contributor.profile.id]);
+
+    await request(baseUrl, `/api/tasks/${task.id}/volunteers/respond`, { token: lead.token, method: "POST", body: { profileId: contributor.profile.id, decision: "accept", role: "primary" } });
+    let result = await request(baseUrl, "/api/results", { token: contributor.token, method: "POST", body: { spaceId: lead.space.id, taskId: task.id, title: "Assigned spectral lemma" } });
+    result = await request(baseUrl, `/api/results/${result.id}`, { token: contributor.token, method: "PATCH", body: {
+      statementLatex: "\\lambda_1(G) \\ge 0",
+      hypothesesLatex: ["G \\text{ is finite}"],
+      proofMarkdown: "Since the finite graph Laplacian is positive semidefinite, every eigenvalue is nonnegative. Therefore the stated spectral lower bound follows and supplies supporting evidence for the root theorem."
+    } });
+    const edge = await request(baseUrl, "/api/edges", { token: contributor.token, method: "POST", body: { sourceResultId: result.id, targetResultId: root.id, relation: "supports" } });
+    assert.equal(edge.sourceResultId, result.id);
+    const submitted = await request(baseUrl, `/api/results/${result.id}/submit`, { token: contributor.token, method: "POST", body: {} });
+    const claimed = await request(baseUrl, "/api/internal/work/next", { method: "POST", body: {} });
+    assert.equal(claimed.work.type, "validate_result");
+    const context = await request(baseUrl, `/api/internal/work/${claimed.work.id}/context`);
+    assert.equal(context.task.id, task.id);
+    assert.equal(context.rootProblem.id, root.id);
+    await request(baseUrl, `/api/internal/work/${claimed.work.id}/validation`, { method: "POST", body: {
+      submittedRevisionId: submitted.result.submittedRevisionId,
+      decision: "validated", claimRestatement: "The finite graph Laplacian has nonnegative spectrum.",
+      summary: "The positive-semidefinite argument establishes the assigned supporting lemma.",
+      assumptionChecks: [{ subject: "finite graph", status: "pass", explanation: "The finite Laplacian is a positive semidefinite matrix." }],
+      proofStepChecks: [{ stepId: "step-1", status: "pass", explanation: "Positive semidefiniteness implies the nonnegative eigenvalue bound." }],
+      dependencyChecks: [], counterexampleRisks: [], issues: [], confidence: 97,
+      taskId: task.id, taskOutcome: "complete", taskRationale: "The validated output has the task's required supports edge to the root theorem.",
+      notification: { title: "Codex review complete", body: "The assigned spectral lemma is Codex-validated." }
+    } });
+    let contributorView = await request(baseUrl, `/api/bootstrap?spaceId=${lead.space.id}`, { token: contributor.token });
+    assert.equal(contributorView.tasks.find((item) => item.id === task.id).status, "done");
+    assert.equal(contributorView.results.find((item) => item.id === result.id).taskId, task.id);
+
+    const proposal = await request(baseUrl, "/api/tasks", { token: contributor.token, method: "POST", body: {
+      spaceId: lead.space.id, parentTaskId: task.id, title: "Check the equality case", goal: "Determine when the supporting lower bound is attained.", priority: "exploratory", targetResultId: result.id
+    } });
+    assert.equal(proposal.approvalState, "proposed");
+    const observerView = await request(baseUrl, `/api/bootstrap?spaceId=${lead.space.id}`, { token: observer.token });
+    assert.equal(observerView.tasks.some((item) => item.id === proposal.id), false);
+    leadView = await request(baseUrl, `/api/bootstrap?spaceId=${lead.space.id}`, { token: lead.token });
+    assert.equal(leadView.tasks.some((item) => item.id === proposal.id), true);
+    await request(baseUrl, `/api/tasks/${proposal.id}/proposal/respond`, { token: lead.token, method: "POST", body: { accept: true } });
+    const publishedView = await request(baseUrl, `/api/bootstrap?spaceId=${lead.space.id}`, { token: observer.token });
+    assert.equal(publishedView.tasks.find((item) => item.id === proposal.id).approvalState, "official");
+
+    await request(baseUrl, `/api/spaces/${lead.space.id}/lead-transfer`, { token: lead.token, method: "POST", body: { profileId: observer.profile.id } });
+    await request(baseUrl, `/api/spaces/${lead.space.id}/lead-transfer/respond`, { token: observer.token, method: "POST", body: { accept: true } });
+    await requestFailure(baseUrl, `/api/spaces/${lead.space.id}`, { token: lead.token, method: "PATCH", status: 403, body: { name: "Unauthorized rename" } });
+    const renamed = await request(baseUrl, `/api/spaces/${lead.space.id}`, { token: observer.token, method: "PATCH", body: { name: "Transferred Spectral Program" } });
+    assert.equal(renamed.name, "Transferred Spectral Program");
+  });
+});
+
+test("accepted counterexample work verifies refutation and completes its task", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const lead = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Refutation Lead", pin: "4444" } });
+    const contributor = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Counterexample Author", pin: "5555" } });
+    let conjecture = await request(baseUrl, "/api/results", { token: lead.token, method: "POST", body: { spaceId: lead.space.id, kind: "conjecture", title: "All integers are even" } });
+    conjecture = await request(baseUrl, `/api/results/${conjecture.id}`, { token: lead.token, method: "PATCH", body: { statementLatex: "\\forall n \\in \\mathbb{Z},\\; 2 \\mid n", hypothesesLatex: ["n \\in \\mathbb{Z}"] } });
+    const conjectureSubmission = await request(baseUrl, `/api/results/${conjecture.id}/submit`, { token: lead.token, method: "POST", body: {} });
+    const conjectureWork = await request(baseUrl, "/api/internal/work/next", { method: "POST", body: {} });
+    await request(baseUrl, `/api/internal/work/${conjectureWork.work.id}/conjecture-review`, { method: "POST", body: {
+      submittedRevisionId: conjectureSubmission.result.submittedRevisionId, decision: "relevant",
+      summary: "This precise conjecture can be resolved by a direct counterexample.", relevanceExplanation: "It provides a bounded refutation task for the workspace.",
+      relatedResultIds: [], issues: [], confidence: 99, notification: { title: "Conjecture reviewed", body: "The conjecture is ready for resolution." }
+    } });
+
+    const task = await request(baseUrl, "/api/tasks", { token: lead.token, method: "POST", body: {
+      spaceId: lead.space.id, title: "Find an odd integer", goal: "Construct an integer satisfying the hypothesis but falsifying the divisibility conclusion.",
+      targetResultId: conjecture.id, expectedRelation: "refutes", priority: "normal"
+    } });
+    await request(baseUrl, `/api/tasks/${task.id}/invite`, { token: lead.token, method: "POST", body: { profileId: contributor.profile.id } });
+    await request(baseUrl, `/api/tasks/${task.id}/invitations/respond`, { token: contributor.token, method: "POST", body: { accept: true } });
+    let counterexample = await request(baseUrl, "/api/results", { token: contributor.token, method: "POST", body: { spaceId: lead.space.id, taskId: task.id, kind: "counterexample", title: "The integer 1" } });
+    counterexample = await request(baseUrl, `/api/results/${counterexample.id}`, { token: contributor.token, method: "PATCH", body: {
+      statementLatex: "n=1", hypothesesLatex: ["1 \\in \\mathbb{Z}"],
+      proofMarkdown: "Take the integer $n=1$. It satisfies the target hypothesis because it is an integer. However, there is no integer $q$ with $1=2q$, so $2$ does not divide $1$. Thus the universal conclusion fails."
+    } });
+    const refutesEdge = await request(baseUrl, "/api/edges", { token: contributor.token, method: "POST", body: { sourceResultId: counterexample.id, targetResultId: conjecture.id, relation: "refutes" } });
+    const submission = await request(baseUrl, `/api/results/${counterexample.id}/submit`, { token: contributor.token, method: "POST", body: {} });
+    const work = await request(baseUrl, "/api/internal/work/next", { method: "POST", body: {} });
+    const context = await request(baseUrl, `/api/internal/work/${work.work.id}/context`);
+    assert.equal(context.refutesEdge.id, refutesEdge.id);
+    assert.equal(context.relationTarget.id, conjecture.id);
+    await request(baseUrl, `/api/internal/work/${work.work.id}/validation`, { method: "POST", body: {
+      submittedRevisionId: submission.result.submittedRevisionId, verificationEdgeId: refutesEdge.id,
+      decision: "validated", claimRestatement: "The integer 1 is not divisible by 2.", summary: "The example satisfies the integer hypothesis and falsifies the universal divisibility conclusion.",
+      assumptionChecks: [{ subject: "integer hypothesis", status: "pass", explanation: "One is an integer." }], proofStepChecks: [],
+      counterexampleChecks: [{ subject: "construction n=1", status: "pass", explanation: "No integer q satisfies 1=2q." }],
+      dependencyChecks: [], counterexampleRisks: [], issues: [], confidence: 100,
+      taskId: task.id, taskOutcome: "complete", taskRationale: "The Codex-validated refutes edge is the task's expected outcome.",
+      notification: { title: "Counterexample validated", body: "The refutation is now recorded." }
+    } });
+    const final = await request(baseUrl, `/api/bootstrap?spaceId=${lead.space.id}`, { token: contributor.token });
+    assert.equal(final.results.find((item) => item.id === conjecture.id).status, "refuted");
+    assert.equal(final.results.find((item) => item.id === conjecture.id).refutedByCounterexampleIds.includes(counterexample.id), true);
+    assert.equal(final.edges.find((item) => item.id === refutesEdge.id).verificationStatus, "verified");
+    assert.equal(final.tasks.find((item) => item.id === task.id).status, "done");
+    assert.equal(final.notifications.some((item) => item.type === "validation"), true);
   });
 });

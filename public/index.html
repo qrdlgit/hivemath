@@ -49,7 +49,14 @@
           <div class="profile-menu-wrap">
             <button class="icon-button" id="profileButton" title="Your profile" aria-label="Your profile" aria-expanded="false"><i data-lucide="user-round"></i></button>
             <div class="profile-popover" id="profilePopover" role="menu" hidden>
-              <div class="profile-summary"><strong id="profileMenuName">Account</strong><span id="profileMenuSpace">Workspace</span></div>
+              <div class="profile-summary"><strong id="profileMenuName">Account</strong><span id="profileMenuSpace">Workspace</span><span class="role-badge" id="profileRole">Contributor</span></div>
+              <div class="space-settings" id="spaceSettings" hidden>
+                <label>Root problem<select id="rootResultSelect"></select></label>
+                <button id="setRootResult" type="button"><i data-lucide="target"></i><span>Set root</span></button>
+                <label>Transfer lead<select id="leadTransferSelect"></select></label>
+                <button id="offerLeadTransfer" type="button"><i data-lucide="user-cog"></i><span>Offer transfer</span></button>
+              </div>
+              <div class="lead-transfer-response" id="leadTransferResponse" hidden><span>Lead transfer offered</span><button id="acceptLeadTransfer" type="button">Accept</button><button id="declineLeadTransfer" type="button">Decline</button></div>
               <button class="logout-button" id="logoutButton" role="menuitem"><i data-lucide="log-out"></i><span>Log out</span></button>
             </div>
           </div>
@@ -60,7 +67,7 @@
         <section class="sidebar-section spaces-section">
           <div class="section-heading">
             <h2>Theorem Spaces</h2>
-            <button class="small-icon-button" id="copySpaceUrl" title="Copy workspace URL" aria-label="Copy workspace URL"><i data-lucide="link"></i></button>
+            <div><button class="small-icon-button" id="newSpace" title="New theorem space" aria-label="New theorem space"><i data-lucide="plus"></i></button><button class="small-icon-button" id="copySpaceUrl" title="Copy workspace URL" aria-label="Copy workspace URL"><i data-lucide="link"></i></button></div>
           </div>
           <div class="spaces-list" id="spacesList"></div>
         </section>
@@ -76,7 +83,7 @@
 
         <section class="legend-panel">
           <h2>Legend</h2>
-          <div class="legend-item"><span class="status-symbol validated"><i data-lucide="check"></i></span><span>Validated / proved</span></div>
+          <div class="legend-item"><span class="status-symbol validated"><i data-lucide="check"></i></span><span>Codex-validated / proved</span></div>
           <div class="legend-item"><span class="status-symbol pending"></span><span>Pending Review</span></div>
           <div class="legend-item"><span class="status-symbol imported"><i data-lucide="download"></i></span><span>Imported</span></div>
           <div class="legend-item"><span class="status-symbol conjecture"><i data-lucide="lightbulb"></i></span><span>Relevant conjecture</span></div>
@@ -93,10 +100,12 @@
               <div class="creation-popover" id="creationPopover" role="menu" hidden>
                 <button id="newConjecture" role="menuitem"><i data-lucide="lightbulb"></i><span><strong>New conjecture</strong><small>Propose a claim for relevance review</small></span></button>
                 <button id="newProof" role="menuitem"><i data-lucide="file-check-2"></i><span><strong>New proof</strong><small>Prove an accepted conjecture</small></span></button>
+                <button id="newCounterexample" role="menuitem"><i data-lucide="circle-x"></i><span><strong>New counterexample</strong><small>Refute an accepted conjecture</small></span></button>
               </div>
             </div>
             <button class="toolbar-button" id="fitView" aria-label="Fit to view"><i data-lucide="scan"></i><span>Fit to view</span><i data-lucide="chevron-down" class="chevron"></i></button>
             <button class="toolbar-button" id="layoutButton" aria-label="Arrange graph"><i data-lucide="network"></i><span>Arrange</span></button>
+            <button class="toolbar-button" id="goRoot" aria-label="Go to root problem"><i data-lucide="target"></i><span>Root</span></button>
           </div>
           <div class="toolbar-group">
             <button class="toolbar-button" id="filterButton" aria-label="Filter results"><i data-lucide="list-filter"></i><span>Filters</span><span class="active-filter-count" id="activeFilterCount"></span></button>
@@ -104,7 +113,7 @@
           </div>
           <div class="filter-popover" id="filterPopover">
             <div class="popover-title"><strong>Show result types</strong><button id="clearFilters">Reset</button></div>
-            <label><input type="checkbox" value="validated" checked /> <span class="filter-dot validated-dot"></span> Validated</label>
+            <label><input type="checkbox" value="validated" checked /> <span class="filter-dot validated-dot"></span> Codex-validated</label>
             <label><input type="checkbox" value="pending" checked /> <span class="filter-dot pending-dot"></span> Draft / pending</label>
             <label><input type="checkbox" value="imported" checked /> <span class="filter-dot imported-dot"></span> Imported</label>
             <label><input type="checkbox" value="conjecture" checked /> <span class="filter-dot conjecture-dot"></span> Relevant conjectures</label>
@@ -125,11 +134,12 @@
             <div class="live-cursors" id="liveCursors"></div>
 
             <aside class="dependency-legend">
-              <strong>Dependencies</strong>
-              <span><i class="line-sample solid"></i>Depends on</span>
+              <strong>Relationships</strong>
+              <span><i class="line-sample solid"></i>Uses</span>
               <span><i class="line-sample dashed"></i>Supports</span>
-              <span><i class="line-sample dotted"></i>Conflicts with</span>
+              <span><i class="line-sample dotted"></i>Special case of</span>
               <span><i class="line-sample proves"></i>Proves</span>
+              <span><i class="line-sample refutes"></i>Refutes</span>
             </aside>
           </div>
 
@@ -154,7 +164,18 @@
       </main>
 
       <aside class="right-panel" id="rightPanel">
-        <section class="assistant-section">
+        <nav class="right-panel-tabs" aria-label="Workspace side panel">
+          <button class="active" data-right-tab="work"><i data-lucide="list-checks"></i><span>Work</span></button>
+          <button data-right-tab="codex"><i data-lucide="sparkles"></i><span>Codex</span></button>
+          <button data-right-tab="notices"><i data-lucide="bell"></i><span>Notices</span></button>
+        </nav>
+        <section class="work-section active" id="workSection" data-right-panel="work">
+          <div class="panel-heading work-heading"><div><span class="work-icon"><i data-lucide="waypoints"></i></span><h2>Research blueprint</h2></div><button class="small-icon-button" id="addTask" title="Add official task" aria-label="Add official task"><i data-lucide="plus"></i></button></div>
+          <div class="work-summary" id="workSummary"></div>
+          <div class="work-filter" role="tablist"><button class="active" data-task-filter="active">Active</button><button data-task-filter="open">Open</button><button data-task-filter="blocked">Blocked</button><button data-task-filter="done">Done</button></div>
+          <div class="task-list" id="taskList"></div>
+        </section>
+        <section class="assistant-section" data-right-panel="codex">
           <div class="panel-heading">
             <div><span class="spark-icon"><i data-lucide="sparkles"></i></span><h2>AI Integration Assistant</h2></div>
             <div>
@@ -166,7 +187,7 @@
           <div class="suggestions-list" id="suggestionsList"></div>
         </section>
 
-        <section class="notifications-section" id="notificationsSection">
+        <section class="notifications-section" id="notificationsSection" data-right-panel="notices">
           <div class="notifications-heading">
             <h2>Notifications</h2>
             <button id="markAllRead">Mark all read</button>
@@ -216,8 +237,10 @@
               <label><input type="radio" name="resultKind" value="result" checked /><span>Result</span></label>
               <label><input type="radio" name="resultKind" value="conjecture" /><span>Conjecture</span></label>
               <label><input type="radio" name="resultKind" value="proof" /><span>Proof</span></label>
+              <label><input type="radio" name="resultKind" value="counterexample" /><span>Counterexample</span></label>
             </div>
           </fieldset>
+          <div class="two-column-fields editor-scope-row"><label>Linked task<select id="resultTask"><option value="">Lead blueprint work</option></select></label><label>Coauthors<select id="resultCollaborators" multiple></select></label></div>
           <label>Title<input id="resultTitle" maxlength="120" required placeholder="A precise name for this result" /></label>
           <div class="math-field-grid statement-grid">
             <label><span id="statementLabel">Statement (LaTeX)</span><textarea id="resultStatement" rows="4" required placeholder="\\lambda_1(G) \\ge c \\log |G|"></textarea></label>
@@ -246,7 +269,7 @@
           </div>
           <div class="two-column-fields">
             <label><span id="relatedResultLabel">Related result</span><select id="resultDependency"><option value="">Choose a result</option></select></label>
-            <label>Relation<select id="resultRelation"><option value="depends_on">Depends on</option><option value="supports">Supports</option><option value="conflicts_with">Conflicts with</option><option value="proves">Proves</option></select></label>
+            <label>Relation<select id="resultRelation"><option value="uses">Uses</option><option value="supports">Supports</option><option value="special_case_of">Special case of</option><option value="conflicts_with">Conflicts with</option><option value="proves">Proves</option><option value="refutes">Refutes</option></select></label>
           </div>
         </form>
 
@@ -269,6 +292,35 @@
         <button class="primary-button" id="submitResult" type="button"><i data-lucide="send"></i><span id="submitResultLabel">Submit for AI validation</span></button>
       </footer>
     </aside>
+
+    <div class="form-modal" id="taskModal" hidden>
+      <form id="taskForm">
+        <header><div><span class="eyebrow" id="taskModalEyebrow">Official blueprint</span><h2 id="taskModalTitle">Add task</h2></div><button class="small-icon-button" id="closeTaskModal" type="button" title="Close" aria-label="Close task form"><i data-lucide="x"></i></button></header>
+        <label>Task title<input id="taskTitle" maxlength="120" required /></label>
+        <label>Mathematical goal<textarea id="taskGoal" rows="4" maxlength="1000" required></textarea></label>
+        <div class="two-column-fields"><label>Priority<select id="taskPriority"><option value="normal">Normal</option><option value="high">High</option><option value="exploratory">Exploratory</option></select></label><label>Parent branch<select id="taskParent"><option value="">Top level</option></select></label></div>
+        <div class="two-column-fields"><label>Target node<select id="taskTarget"><option value="">No target yet</option></select></label><label>Expected outcome<select id="taskRelation"><option value="">Exploratory result</option><option value="supports">Supports</option><option value="proves">Proves</option><option value="refutes">Refutes</option></select></label></div>
+        <footer><button class="secondary-button" id="cancelTask" type="button">Cancel</button><button class="primary-button" type="submit"><i data-lucide="plus"></i><span id="taskSubmitLabel">Add official task</span></button></footer>
+      </form>
+    </div>
+
+    <div class="form-modal" id="spaceModal" hidden>
+      <form id="spaceForm">
+        <header><div><span class="eyebrow">New program</span><h2>Create theorem space</h2></div><button class="small-icon-button" id="closeSpaceModal" type="button" title="Close" aria-label="Close theorem space form"><i data-lucide="x"></i></button></header>
+        <label>Name<input id="spaceName" minlength="2" maxlength="80" required /></label>
+        <label>Root problem title<input id="spaceRootTitle" maxlength="120" placeholder="Optional" /></label>
+        <label>Root problem statement (LaTeX)<textarea id="spaceRootStatement" rows="4" placeholder="Optional"></textarea></label>
+        <footer><button class="secondary-button" id="cancelSpace" type="button">Cancel</button><button class="primary-button" type="submit"><i data-lucide="network"></i>Create space</button></footer>
+      </form>
+    </div>
+
+    <div class="form-modal compact-modal" id="taskChooserModal" hidden>
+      <form id="taskChooserForm">
+        <header><div><span class="eyebrow">Accepted assignment</span><h2>Choose task</h2></div><button class="small-icon-button" id="closeTaskChooser" type="button" title="Close" aria-label="Close task chooser"><i data-lucide="x"></i></button></header>
+        <label>Task<select id="contributionTask"></select></label>
+        <footer><button class="secondary-button" id="cancelTaskChooser" type="button">Cancel</button><button class="primary-button" type="submit">Start contribution</button></footer>
+      </form>
+    </div>
 
     <div class="activity-modal" id="activityModal" hidden>
       <section><header><h2>Workspace activity</h2><button class="small-icon-button" id="closeActivity" title="Close activity" aria-label="Close activity"><i data-lucide="x"></i></button></header><div id="activityList" class="activity-list"></div></section>

@@ -1,12 +1,22 @@
 import { test, expect } from "@playwright/test";
 
-async function join(page, name, pin) {
-  await page.goto("/join/spectral-gap");
+async function join(page, name, pin, slug = "spectral-gap") {
+  await page.goto(`/join/${slug}`);
   await page.getByLabel("Display name").fill(name);
   await page.getByLabel("PIN or small password").fill(pin);
   await page.getByRole("button", { name: "Join workspace" }).click();
   await expect(page.locator("#joinGate")).toBeHidden();
   await expect(page.locator("#workspaceTitle")).toHaveText("Spectral Gap Program");
+}
+
+async function createSpace(page, name, rootTitle = "Root problem", rootStatement = "x=x") {
+  const payload = await page.evaluate(async ({ name, rootTitle, rootStatement }) => {
+    const token = sessionStorage.getItem("mathhive.token");
+    return fetch("/api/spaces", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ name, rootTitle, rootStatement }) }).then((response) => response.json());
+  }, { name, rootTitle, rootStatement });
+  await page.goto(`/join/${payload.space.inviteSlug}`);
+  await expect(page.locator("#workspaceTitle")).toHaveText(name);
+  return payload;
 }
 
 async function emptyCanvasPoint(page) {
@@ -97,7 +107,7 @@ Is it true that for all $m\geq n+k$\[M(n,k) \neq M(m,k)?\]`);
     }));
     expect(pairedFieldsAlign).toBe(true);
     await expect(ada.locator("#saveStatus")).toContainText("draft");
-    await expect(emmy.getByText("Browser equality lemma", { exact: true })).toBeVisible();
+    await expect(emmy.locator("#nodesLayer").getByText("Browser equality lemma", { exact: true })).toBeVisible();
 
     const resultId = await ada.evaluate(async () => {
       const token = sessionStorage.getItem("mathhive.token");
@@ -106,7 +116,8 @@ Is it true that for all $m\geq n+k$\[M(n,k) \neq M(m,k)?\]`);
     });
 
     await emmy.locator(`[data-node-id="${resultId}"] [data-star-id]`).click();
-    await expect(ada.locator(`[data-node-id="${resultId}"] .star-button`)).toHaveClass(/starred/);
+    await expect(emmy.locator(`[data-node-id="${resultId}"] .star-button`)).toHaveClass(/starred/);
+    await expect(ada.locator(`[data-node-id="${resultId}"] .star-button`)).not.toHaveClass(/starred/);
 
     await ada.getByRole("button", { name: "Ask Codex now" }).click();
     await expect.poll(async () => (await (await request.get("/api/internal/work/count")).json()).pendingWorkCount).toBe(1);
@@ -139,7 +150,7 @@ Is it true that for all $m\geq n+k$\[M(n,k) \neq M(m,k)?\]`);
       dependencyChecks: [], counterexampleRisks: [], issues: [], confidence: 99,
       notification: { title: "Result validated", body: "The reflexivity argument is valid." }
     }});
-    await expect(ada.locator("#editorStatus")).toContainText("Validated");
+    await expect(ada.locator("#editorStatus")).toContainText("Codex-validated");
     await expect(ada.locator("#notificationsList")).toContainText("Result validated");
     await ada.getByRole("button", { name: /History/ }).click();
     await expect(ada.locator("#revisionList")).toContainText("Revision 1");
@@ -171,6 +182,8 @@ test("a conjecture and its proof complete the verified proves lifecycle", async 
   const page = await context.newPage();
   try {
     await join(page, "Conjecture Browser", "4321");
+    const isolated = await createSpace(page, "LCM Browser Program", "LCM root problem", String.raw`M(n,k) \neq M(m,k)`);
+    const rootId = isolated.rootResult.id;
     await page.getByRole("button", { name: "More contribution types" }).click();
     await page.getByRole("menuitem", { name: /New conjecture/ }).click();
     await expect(page.locator('input[name="resultKind"][value="conjecture"]')).toBeChecked();
@@ -181,7 +194,7 @@ test("a conjecture and its proof complete the verified proves lifecycle", async 
     await page.locator("#resultTitle").fill("LCM conjecture for k = 1");
     await page.locator("#resultStatement").fill(String.raw`M(n,1) \neq M(m,1)`);
     await page.locator("#resultHypotheses").fill("n,m \\in \\mathbb{Z}_{\\ge 1}\nm \\ge n+1\nM(a,1)=a+1");
-    await page.locator("#resultDependency").selectOption("result-main");
+    await page.locator("#resultDependency").selectOption(rootId);
     await page.getByRole("button", { name: "Add relation" }).click();
     await page.getByRole("button", { name: "Submit conjecture for review" }).click();
     await expect(page.locator("#editorStatus")).toContainText("Pending review");
@@ -189,19 +202,19 @@ test("a conjecture and its proof complete the verified proves lifecycle", async 
     const claimed = await (await request.post("/api/internal/work/next", { data: {} })).json();
     expect(claimed.work.type).toBe("review_conjecture");
     const workContext = await (await request.get(`/api/internal/work/${claimed.work.id}/context`)).json();
-    expect(workContext.relatedCandidates.some((item) => item.id === "result-main")).toBe(true);
-    expect(workContext.edges.some((edge) => edge.sourceResultId === "result-main" && edge.targetResultId === workContext.result.id)).toBe(true);
+    expect(workContext.relatedCandidates.some((item) => item.id === rootId)).toBe(true);
+    expect(workContext.edges.some((edge) => edge.sourceResultId === workContext.result.id && edge.targetResultId === rootId)).toBe(true);
     await request.post(`/api/internal/work/${claimed.work.id}/conjecture-review`, { data: {
       submittedRevisionId: workContext.result.submittedRevisionId,
       decision: "relevant",
       summary: "This conjecture isolates a concrete special case of the theorem space's root question.",
       relevanceExplanation: "The k=1 case is a bounded specialization that can anchor later proof branches.",
-      relatedResultIds: ["result-main"], issues: [], confidence: 93,
-      notification: { title: "Conjecture is relevant", body: "Codex linked it to Main Theorem." }
+      relatedResultIds: [rootId], issues: [], confidence: 93,
+      notification: { title: "Conjecture is relevant", body: "Codex linked it to the LCM root problem." }
     }});
     await expect(page.locator("#editorStatus")).toContainText("Conjecture · Relevant");
     await expect(page.locator("#codexFeedback")).toContainText("Conjecture relevance: relevant");
-    await expect(page.locator("#codexFeedback")).toContainText("Related: Main Theorem");
+    await expect(page.locator("#codexFeedback")).toContainText("Related: LCM root problem");
     await expect(page.locator("#notificationsList")).toContainText("Conjecture is relevant");
     await page.locator("#closeEditor").click();
     const node = page.locator(".result-node.kind-conjecture").filter({ hasText: "LCM conjecture for k = 1" });
@@ -241,15 +254,67 @@ test("a conjecture and its proof complete the verified proves lifecycle", async 
       dependencyChecks: [], counterexampleRisks: [], issues: [], confidence: 99,
       notification: { title: "Proof validated", body: "The k=1 proof is valid and its proves edge is verified." }
     }});
-    await expect(page.locator("#editorStatus")).toContainText("Proof · Validated");
+    await expect(page.locator("#editorStatus")).toContainText("Proof · Codex-validated");
     await expect(page.locator("#notificationsList")).toContainText("Conjecture proved");
     await page.locator("#closeEditor").click();
     await expect(node.locator(".status-pill")).toHaveText("Proved");
     const proofNode = page.locator(".result-node.kind-proof").filter({ hasText: "Proof of the k = 1 case" });
-    await expect(proofNode.locator(".status-pill")).toHaveText("Validated");
+    await expect(proofNode.locator(".status-pill")).toHaveText("Codex-validated");
     await expect(page.locator(".edge-label.proves.verified")).toHaveText("proves");
     await page.screenshot({ path: testInfo.outputPath("verified-proof-graph.png"), fullPage: true });
   } finally {
     await context.close();
+  }
+});
+
+test("lead publishes official work and an accepted volunteer contributes within scope", async ({ browser }) => {
+  const leadContext = await browser.newContext();
+  const contributorContext = await browser.newContext();
+  const lead = await leadContext.newPage();
+  const contributor = await contributorContext.newPage();
+  try {
+    await join(lead, "Delegation Lead", "6101");
+    const created = await createSpace(lead, "Delegated Number Theory", "Root divisibility question", String.raw`a \mid b`);
+    await join(contributor, "Delegated Contributor", "6102", created.space.inviteSlug);
+
+    await contributor.getByRole("button", { name: "New result" }).click();
+    await expect(contributor.locator("#toastRegion")).toContainText("wait for lead acceptance");
+    await expect(lead.locator(".result-node.root-problem")).toContainText("Root divisibility question");
+
+    await lead.getByRole("button", { name: "Add official task" }).click();
+    await lead.getByLabel("Task title").fill("Prove the first divisibility case");
+    await lead.getByLabel("Mathematical goal").fill("Produce a complete checked argument for the first case of the root divisibility question.");
+    await lead.getByLabel("Target node").selectOption(created.rootResult.id);
+    await lead.getByLabel("Expected outcome").selectOption("supports");
+    await lead.locator("#taskModal").getByRole("button", { name: "Add official task", exact: true }).click();
+    const contributorTask = contributor.locator(".task-row").filter({ hasText: "Prove the first divisibility case" });
+    await expect(contributorTask).toBeVisible();
+    await contributorTask.getByRole("button", { name: "Volunteer" }).click();
+    await expect(contributorTask).toContainText("Volunteer request pending");
+
+    const leadTask = lead.locator(".task-row").filter({ hasText: "Prove the first divisibility case" });
+    await expect(leadTask).toContainText("Delegated Contributor");
+    await leadTask.getByRole("button", { name: "Primary" }).click();
+    await expect(contributorTask).toContainText("Delegated Contributor");
+    await contributorTask.getByRole("button", { name: /Start contribution/ }).click();
+    await expect(contributor.locator("#resultTask")).toHaveValue(/.+/);
+    await contributor.locator("#resultTitle").fill("First divisibility case");
+    await contributor.locator("#resultStatement").fill(String.raw`1 \mid b`);
+    await contributor.locator("#resultHypotheses").fill(String.raw`b \in \mathbb{Z}`);
+    await contributor.locator("#resultProof").fill("Since $b$ is an integer, we have $b=1\cdot b$. Therefore the integer $1$ divides $b$, which establishes the assigned first divisibility case.");
+    await expect(contributor.locator("#saveStatus")).toContainText("draft");
+    await contributor.locator("#closeEditor").click();
+
+    await contributorTask.getByRole("button", { name: "Propose subtask" }).click();
+    await contributor.getByLabel("Task title").fill("Check the negative case");
+    await contributor.getByLabel("Mathematical goal").fill("Determine how the argument changes when the target integer is negative.");
+    await contributor.getByRole("button", { name: "Send proposal" }).click();
+    const proposal = lead.locator(".task-row").filter({ hasText: "Check the negative case" });
+    await expect(proposal).toContainText("Proposed");
+    await proposal.getByRole("button", { name: "Approve" }).click();
+    await expect(contributor.locator(".task-row").filter({ hasText: "Check the negative case" })).toContainText("Open");
+  } finally {
+    await leadContext.close();
+    await contributorContext.close();
   }
 });

@@ -79,7 +79,20 @@ export async function createMathHiveServer(options = {}) {
   app.get("/api/bootstrap", (req, res) => res.json(store.bootstrap({ token: req.token, spaceId: req.query.spaceId })));
   app.post("/api/logout", asyncRoute(async (req, res) => res.json(await store.logout(req.token))));
   app.patch("/api/profiles/me", asyncRoute(async (req, res) => res.json(await store.updateProfile(req.token, req.body || {}))));
+  app.post("/api/spaces", asyncRoute(async (req, res) => res.status(201).json(await store.createSpace(req.token, req.body || {}))));
   app.patch("/api/spaces/:spaceId", asyncRoute(async (req, res) => res.json(await store.renameSpace(req.token, req.params.spaceId, req.body?.name))));
+  app.post("/api/spaces/:spaceId/root", asyncRoute(async (req, res) => res.json(await store.setRootResult(req.token, req.params.spaceId, req.body?.resultId))));
+  app.post("/api/spaces/:spaceId/lead-transfer", asyncRoute(async (req, res) => res.json(await store.offerLeadTransfer(req.token, req.params.spaceId, req.body?.profileId))));
+  app.post("/api/spaces/:spaceId/lead-transfer/respond", asyncRoute(async (req, res) => res.json(await store.respondLeadTransfer(req.token, req.params.spaceId, req.body?.accept === true))));
+  app.post("/api/tasks", asyncRoute(async (req, res) => res.status(201).json(await store.createTask(req.token, req.body || {}))));
+  app.patch("/api/tasks/:taskId", asyncRoute(async (req, res) => res.json(await store.updateTask(req.token, req.params.taskId, req.body || {}))));
+  app.post("/api/tasks/:taskId/volunteer", asyncRoute(async (req, res) => res.json(await store.volunteerForTask(req.token, req.params.taskId))));
+  app.post("/api/tasks/:taskId/volunteers/respond", asyncRoute(async (req, res) => res.json(await store.respondVolunteer(req.token, req.params.taskId, req.body || {}))));
+  app.post("/api/tasks/:taskId/release", asyncRoute(async (req, res) => res.json(await store.releaseTask(req.token, req.params.taskId))));
+  app.post("/api/tasks/:taskId/invite", asyncRoute(async (req, res) => res.json(await store.inviteToTask(req.token, req.params.taskId, req.body?.profileId))));
+  app.post("/api/tasks/:taskId/invitations/respond", asyncRoute(async (req, res) => res.json(await store.respondTaskInvitation(req.token, req.params.taskId, req.body?.accept === true))));
+  app.post("/api/tasks/:taskId/proposal/respond", asyncRoute(async (req, res) => res.json(await store.respondTaskProposal(req.token, req.params.taskId, req.body?.accept === true))));
+  app.post("/api/tasks/:taskId/outputs", asyncRoute(async (req, res) => res.json(await store.linkTaskOutput(req.token, req.params.taskId, req.body?.resultId))));
   app.post("/api/results", asyncRoute(async (req, res) => res.status(201).json(await store.createResult(req.token, req.body || {}))));
   app.patch("/api/results/:id", asyncRoute(async (req, res) => {
     const result = await store.updateResult(req.token, req.params.id, req.body || {});
@@ -207,6 +220,10 @@ export async function createMathHiveServer(options = {}) {
           broadcast(client.spaceId, client.pointer);
         }
         if (message.type === "editing.acquire") {
+          const result = store.getResult(message.resultId);
+          if (!result || (result.createdBy !== client.profile.id && !result.collaboratorIds?.includes(client.profile.id))) {
+            return send(socket, { type: "error", code: "result_edit_denied", message: "Only the author or an explicit coauthor may edit this result." });
+          }
           const current = locks.get(message.resultId);
           if (!current || current.profileId === client.profile.id || message.force === true) {
             const lock = { resultId: message.resultId, profileId: client.profile.id, displayName: client.profile.displayName, color: client.profile.color, spaceId: client.spaceId, acquiredAt: new Date().toISOString() };
