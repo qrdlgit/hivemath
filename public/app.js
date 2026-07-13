@@ -80,8 +80,11 @@ function renderLatex(element, latex, displayMode = true) {
 
 function renderMarkdown(source) {
   const expressions = [];
-  const withTokens = String(source || "").replace(/\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g, (match, block, inline) => {
-    const index = expressions.push({ value: block || inline, displayMode: Boolean(block) }) - 1;
+  const delimiters = /\\\[([\s\S]+?)\\\]|\$\$([\s\S]+?)\$\$|\\\(([\s\S]+?)\\\)|\$([^$\n]+?)\$/g;
+  const withTokens = String(source || "").replace(delimiters, (match, bracketBlock, dollarBlock, bracketInline, dollarInline) => {
+    const value = bracketBlock ?? dollarBlock ?? bracketInline ?? dollarInline;
+    const displayMode = bracketBlock !== undefined || dollarBlock !== undefined;
+    const index = expressions.push({ value, displayMode }) - 1;
     return `MATHXTOKEN${index}XEND`;
   });
   let html = markdown.render(withTokens);
@@ -95,6 +98,16 @@ function renderMarkdown(source) {
     html = html.replace(`MATHXTOKEN${index}XEND`, rendered);
   });
   return html;
+}
+
+function renderStatement(element, source, displayMode = true) {
+  const mixedContent = /\$|\\\[|\\\(/.test(source || "");
+  element.classList.toggle("mixed-content", mixedContent);
+  if (mixedContent) {
+    element.innerHTML = renderMarkdown(source) || '<span class="empty-math">No mathematical statement yet</span>';
+    return;
+  }
+  renderLatex(element, source, displayMode);
 }
 
 async function api(path, options = {}) {
@@ -291,7 +304,7 @@ function renderNodes() {
     </article>`;
   }).join("");
 
-  for (const result of state.results) renderLatex($(`[data-result-math="${result.id}"]`), result.statementLatex, false);
+  for (const result of state.results) renderStatement($(`[data-result-math="${result.id}"]`), result.statementLatex, false);
   $$(".result-node").forEach((element) => {
     element.addEventListener("pointerdown", beginNodeDrag);
     element.addEventListener("click", () => {
@@ -608,7 +621,7 @@ function applyEditorLock() {
 }
 
 function renderEditorPreview() {
-  renderLatex($("#statementPreview"), $("#resultStatement").value, true);
+  renderStatement($("#statementPreview"), $("#resultStatement").value, true);
   $("#proofPreview").innerHTML = renderMarkdown($("#resultProof").value) || '<span class="empty-math">Proof preview</span>';
   renderLocalChecks();
 }

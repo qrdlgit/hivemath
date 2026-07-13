@@ -615,6 +615,8 @@ svg { display: block; }
 
 .node-body { display: flex; flex: 1; flex-direction: column; gap: 8px; padding: 10px 10px 9px; }
 .formula { min-height: 24px; font-family: "DM Serif Display", Georgia, serif; font-size: 14px; line-height: 1.35; }
+.formula.mixed-content { display: -webkit-box; max-height: 58px; overflow: hidden; font-family: "DM Sans", Inter, sans-serif; font-size: 10px; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.formula.mixed-content p { margin: 0 0 4px; }
 .formula sub,
 .formula sup { font-size: 9px; }
 .status-row { display: flex; align-items: center; gap: 7px; margin-top: auto; }
@@ -957,6 +959,9 @@ svg { display: block; }
 .math-preview,
 .proof-preview { min-height: 100px; padding: 13px; overflow: auto; color: #202d41; background: white; border: 1px solid var(--line); border-radius: 5px; }
 .math-preview { display: grid; place-items: center; font-size: 16px; }
+.math-preview.mixed-content { display: block; font-family: Georgia, serif; font-size: 13px; line-height: 1.65; user-select: text; }
+.math-preview.mixed-content p { margin: 0 0 10px; }
+.math-preview.mixed-content p:last-child { margin-bottom: 0; }
 .proof-grid .proof-preview { min-height: 236px; }
 .prose { font-family: Georgia, serif; font-size: 13px; line-height: 1.65; user-select: text; }
 .prose p:first-child { margin-top: 0; }
