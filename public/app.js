@@ -112,6 +112,22 @@ function renderStatement(element, source, displayMode = true) {
   renderLatex(element, source, displayMode);
 }
 
+function renderHypothesesPreview() {
+  const element = $("#hypothesesPreview");
+  const hypotheses = $("#resultHypotheses").value.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (!hypotheses.length) {
+    element.innerHTML = '<span class="empty-math">Hypotheses preview</span>';
+    return;
+  }
+  element.innerHTML = "";
+  hypotheses.forEach((hypothesis) => {
+    const row = document.createElement("div");
+    row.className = "hypothesis-preview-item";
+    renderLatex(row, hypothesis);
+    element.append(row);
+  });
+}
+
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
@@ -658,6 +674,7 @@ function applyEditorLock() {
 
 function renderEditorPreview() {
   renderStatement($("#statementPreview"), $("#resultStatement").value, true);
+  renderHypothesesPreview();
   $("#proofPreview").innerHTML = renderMarkdown($("#resultProof").value) || '<span class="empty-math">Proof preview</span>';
   renderLocalChecks();
 }

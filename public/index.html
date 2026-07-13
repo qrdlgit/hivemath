@@ -195,14 +195,26 @@
       <section class="editor-tab-panel active" data-editor-panel="write">
         <form id="resultForm" class="result-form">
           <label>Title<input id="resultTitle" maxlength="120" required placeholder="A precise name for this result" /></label>
-          <div class="math-field-grid">
+          <div class="math-field-grid statement-grid">
             <label>Statement (LaTeX)<textarea id="resultStatement" rows="4" required placeholder="\\lambda_1(G) \\ge c \\log |G|"></textarea></label>
-            <div class="math-preview" id="statementPreview" aria-label="Rendered statement"></div>
+            <div class="preview-field">
+              <span class="preview-label">Rendered statement</span>
+              <div class="math-preview" id="statementPreview" aria-label="Rendered statement"></div>
+            </div>
           </div>
-          <label>Hypotheses, one LaTeX expression per line<textarea id="resultHypotheses" rows="3" placeholder="G \\text{ is finite and connected}"></textarea></label>
+          <div class="math-field-grid hypotheses-grid">
+            <label>Hypotheses, one LaTeX expression per line<textarea id="resultHypotheses" rows="3" placeholder="G \\text{ is finite and connected}"></textarea></label>
+            <div class="preview-field">
+              <span class="preview-label">Rendered hypotheses</span>
+              <div class="math-preview hypotheses-preview" id="hypothesesPreview" aria-label="Rendered hypotheses"></div>
+            </div>
+          </div>
           <div class="math-field-grid proof-grid">
             <label>Proof (Markdown + LaTeX)<textarea id="resultProof" rows="13" required placeholder="State each step. Use $...$ for inline math and $$...$$ for display math."></textarea></label>
-            <div class="proof-preview prose" id="proofPreview" aria-label="Rendered proof"></div>
+            <div class="preview-field">
+              <span class="preview-label">Rendered proof</span>
+              <div class="proof-preview prose" id="proofPreview" aria-label="Rendered proof"></div>
+            </div>
           </div>
           <div class="two-column-fields">
             <label>Tags<input id="resultTags" placeholder="spectral-gap, expander" /></label>

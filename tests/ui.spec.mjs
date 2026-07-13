@@ -46,10 +46,19 @@ Is it true that for all $m\geq n+k$\[M(n,k) \neq M(m,k)?\]`);
     });
     expect(contentFits).toBe(true);
     await ada.locator("#resultStatement").fill("x = x");
-    await ada.locator("#resultHypotheses").fill("x \\in X");
+    await ada.locator("#resultHypotheses").fill("x \\in X\nX \\neq \\varnothing");
     await ada.locator("#resultProof").fill("Assume that $x$ is an object of $X$. Since equality is reflexive, $x=x$ follows immediately. Therefore the displayed statement holds for every selected object.");
     await ada.locator("#resultTags").fill("equality, foundations");
     await expect(ada.locator("#statementPreview .katex")).toBeVisible();
+    await expect(ada.locator("#hypothesesPreview .katex")).toHaveCount(2);
+    const pairedFieldsAlign = await ada.locator(".math-field-grid").evaluateAll((grids) => grids.every((grid) => {
+      const input = grid.querySelector("textarea");
+      const preview = grid.querySelector(".math-preview, .proof-preview");
+      const inputBounds = input.getBoundingClientRect();
+      const previewBounds = preview.getBoundingClientRect();
+      return Math.abs(inputBounds.top - previewBounds.top) <= 1 && Math.abs(inputBounds.bottom - previewBounds.bottom) <= 1;
+    }));
+    expect(pairedFieldsAlign).toBe(true);
     await expect(ada.locator("#saveStatus")).toContainText("draft");
     await expect(emmy.getByText("Browser equality lemma", { exact: true })).toBeVisible();
 

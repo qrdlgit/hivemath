@@ -959,12 +959,24 @@ svg { display: block; }
 .result-form { display: grid; gap: 15px; }
 .result-form textarea { min-height: 72px; line-height: 1.45; }
 .math-field-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .8fr); gap: 14px; align-items: stretch; }
+.math-field-grid > label,
+.preview-field { min-width: 0; grid-template-rows: auto minmax(0, 1fr); }
+.preview-field { display: grid; gap: 7px; }
+.preview-label { color: #435067; font-size: 11px; font-weight: 600; }
+.math-field-grid textarea,
+.math-field-grid .math-preview,
+.math-field-grid .proof-preview { height: 100%; }
 .math-preview,
 .proof-preview { min-height: 100px; padding: 13px; overflow: auto; color: #202d41; background: white; border: 1px solid var(--line); border-radius: 5px; }
 .math-preview { display: grid; place-items: center; font-size: 16px; }
 .math-preview.mixed-content { display: block; font-family: Georgia, serif; font-size: 13px; line-height: 1.65; user-select: text; }
 .math-preview.mixed-content p { margin: 0 0 10px; }
 .math-preview.mixed-content p:last-child { margin-bottom: 0; }
+.hypotheses-grid .math-preview { min-height: 84px; }
+.hypotheses-preview { align-content: center; place-items: stretch; gap: 4px; }
+.hypothesis-preview-item { min-width: 0; overflow-x: auto; text-align: center; }
+.hypothesis-preview-item .katex-display { margin: .2em 0; }
+.proof-grid textarea,
 .proof-grid .proof-preview { min-height: 236px; }
 .prose { font-family: Georgia, serif; font-size: 13px; line-height: 1.65; user-select: text; }
 .prose p:first-child { margin-top: 0; }
