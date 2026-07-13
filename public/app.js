@@ -340,10 +340,10 @@ function sizeNodesToContent() {
     if (!element) continue;
     const title = $(".node-heading strong", element);
     const formula = $(".formula", element);
-    const mixedEstimate = formula.classList.contains("mixed-content")
-      ? baseNodeWidth + Math.max(0, result.statementLatex.length - 40) * 2.2
-      : 0;
-    const desiredWidth = Math.ceil(Math.max(baseNodeWidth, title.scrollWidth + 76, formula.scrollWidth + 22, mixedEstimate));
+    const contentWidth = formula.classList.contains("mixed-content")
+      ? measureMixedContentWidth(formula)
+      : formula.scrollWidth;
+    const desiredWidth = Math.ceil(Math.max(baseNodeWidth, title.scrollWidth + 76, contentWidth + 22));
     const width = Math.min(maxNodeWidth, desiredWidth);
     element.style.width = `${width}px`;
     stageWidth = Math.max(stageWidth, Number(result.x) + width + 40);
@@ -351,6 +351,16 @@ function sizeNodesToContent() {
   }
   stage.style.width = `${stageWidth}px`;
   stage.style.height = `${stageHeight}px`;
+}
+
+function measureMixedContentWidth(formula) {
+  const probe = formula.cloneNode(true);
+  probe.classList.add("node-size-probe");
+  probe.style.maxWidth = `${maxNodeWidth - 22}px`;
+  document.body.append(probe);
+  const width = probe.getBoundingClientRect().width;
+  probe.remove();
+  return width;
 }
 
 function edgeClass(relation) {

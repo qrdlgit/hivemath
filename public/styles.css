@@ -616,10 +616,11 @@ svg { display: block; }
 .star-button svg { width: 15px; height: 15px; }
 .star-button.starred svg { fill: currentColor; }
 
-.node-body { display: flex; flex: 1; flex-direction: column; gap: 8px; padding: 10px 10px 9px; }
+.node-body { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 8px; padding: 10px 10px 9px; }
 .formula { min-height: 24px; font-family: "DM Serif Display", Georgia, serif; font-size: 14px; line-height: 1.35; }
-.formula.mixed-content { display: -webkit-box; max-height: 58px; overflow: hidden; font-family: "DM Sans", Inter, sans-serif; font-size: 10px; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.formula.mixed-content { display: block; overflow: auto; font-family: "DM Sans", Inter, sans-serif; font-size: 10px; }
 .formula.mixed-content p { margin: 0 0 4px; }
+.node-size-probe { position: fixed; top: 0; left: -10000px; z-index: -1; width: max-content; min-height: 0; visibility: hidden; pointer-events: none; }
 .formula sub,
 .formula sup { font-size: 9px; }
 .status-row { display: flex; align-items: center; gap: 7px; margin-top: auto; }
