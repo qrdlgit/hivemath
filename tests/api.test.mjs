@@ -110,10 +110,10 @@ test("conjectures are reviewed for relevance without requiring a proof", async (
     const author = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Conjecture Author", pin: "8642" } });
     const initial = await request(baseUrl, `/api/bootstrap?spaceId=${author.space.id}`, { token: author.token });
     const root = initial.results.find((item) => item.id === "result-main");
-    let conjecture = await request(baseUrl, "/api/results", { token: author.token, method: "POST", body: { spaceId: author.space.id, kind: "conjecture", title: "Sharper logarithmic gap" } });
+    let conjecture = await request(baseUrl, "/api/results", { token: author.token, method: "POST", body: { spaceId: author.space.id, kind: "conjecture", title: "Nonnegative spectral gap" } });
     conjecture = await request(baseUrl, `/api/results/${conjecture.id}`, { token: author.token, method: "PATCH", body: {
-      statementLatex: "\\lambda_1(G) \\ge 2c \\log |G|",
-      hypothesesLatex: ["G \\text{ is in the target Cayley family}"],
+      statementLatex: "\\lambda_1(G) \\ge 0",
+      hypothesesLatex: ["G \\text{ is a finite graph}"],
       dependencyIds: [root.id], tags: ["spectral-gap", "conjecture"]
     }});
     assert.equal(conjecture.kind, "conjecture");
@@ -129,8 +129,8 @@ test("conjectures are reviewed for relevance without requiring a proof", async (
     await request(baseUrl, `/api/internal/work/${claimed.work.id}/conjecture-review`, { method: "POST", body: {
       submittedRevisionId: submitted.result.submittedRevisionId,
       decision: "relevant",
-      summary: "The conjecture directly strengthens the theorem-space target.",
-      relevanceExplanation: "It preserves the graph family and improves the same spectral lower bound.",
+      summary: "The conjecture gives a foundational lower bound for the theorem-space target.",
+      relevanceExplanation: "It concerns the same spectral quantity under compatible finite-graph hypotheses.",
       relatedResultIds: [root.id], issues: [], confidence: 91,
       notification: { title: "Conjecture is relevant", body: "Codex connected it to Main Theorem." }
     }});
@@ -141,5 +141,45 @@ test("conjectures are reviewed for relevance without requiring a proof", async (
     assert.equal(reviewed.relevanceStatus, "relevant");
     assert.equal(bootstrap.reviews.some((item) => item.resultId === conjecture.id && item.reviewType === "conjecture_relevance" && item.relatedResultIds.includes(root.id)), true);
     assert.equal(bootstrap.notifications.some((item) => item.type === "conjecture_review"), true);
+
+    let proof = await request(baseUrl, "/api/results", { token: author.token, method: "POST", body: { spaceId: author.space.id, kind: "proof", title: "Proof of nonnegative spectral gap" } });
+    proof = await request(baseUrl, `/api/results/${proof.id}`, { token: author.token, method: "PATCH", body: {
+      statementLatex: conjecture.statementLatex,
+      hypothesesLatex: conjecture.hypothesesLatex,
+      proofMarkdown: "Let $L$ be the graph Laplacian. For every vector $v$, the quadratic form $v^T L v$ is a sum of squared edge differences and is therefore nonnegative. Hence $L$ is positive semidefinite, so all its eigenvalues, including $\\lambda_1(G)$, are nonnegative."
+    }});
+    const unlinkedSubmission = await fetch(`${baseUrl}/api/results/${proof.id}/submit`, { method: "POST", headers: { Authorization: `Bearer ${author.token}`, "Content-Type": "application/json" }, body: "{}" });
+    assert.equal(unlinkedSubmission.status, 400);
+    assert.equal((await unlinkedSubmission.json()).error, "missing_proves_edge");
+    const provesEdge = await request(baseUrl, "/api/edges", { token: author.token, method: "POST", body: { sourceResultId: proof.id, targetResultId: conjecture.id, relation: "proves" } });
+    assert.equal(provesEdge.verificationStatus, "proposed");
+    assert.equal(provesEdge.targetRevisionId, submitted.result.submittedRevisionId);
+
+    const proofSubmission = await request(baseUrl, `/api/results/${proof.id}/submit`, { token: author.token, method: "POST", body: {} });
+    const proofWork = await request(baseUrl, "/api/internal/work/next", { method: "POST", body: {} });
+    assert.equal(proofWork.work.type, "validate_result");
+    const proofContext = await request(baseUrl, `/api/internal/work/${proofWork.work.id}/context`);
+    assert.equal(proofContext.provesEdge.id, provesEdge.id);
+    assert.equal(proofContext.proofTarget.id, conjecture.id);
+    assert.equal(proofContext.proofTargetRevision.id, submitted.result.submittedRevisionId);
+    await request(baseUrl, `/api/internal/work/${proofWork.work.id}/validation`, { method: "POST", body: {
+      submittedRevisionId: proofSubmission.result.submittedRevisionId,
+      provesEdgeId: provesEdge.id,
+      decision: "validated",
+      claimRestatement: "The selected graph Laplacian eigenvalue is nonnegative.",
+      summary: "The submitted proof establishes the exact linked conjecture.",
+      assumptionChecks: [{ subject: "finite graph", status: "pass", explanation: "The finite graph Laplacian is a positive semidefinite matrix." }],
+      proofStepChecks: [{ stepId: "step-1", status: "pass", explanation: "The nonnegative quadratic form proves positive semidefiniteness and the eigenvalue bound." }],
+      dependencyChecks: [], counterexampleRisks: [], issues: [], confidence: 94,
+      notification: { title: "Proof validated", body: "The proposed proves relationship is now verified." }
+    }});
+
+    const provedBootstrap = await request(baseUrl, `/api/bootstrap?spaceId=${author.space.id}`, { token: author.token });
+    const provedConjecture = provedBootstrap.results.find((item) => item.id === conjecture.id);
+    assert.equal(provedConjecture.status, "proved");
+    assert.equal(provedConjecture.provedByProofIds.includes(proof.id), true);
+    assert.equal(provedBootstrap.results.find((item) => item.id === proof.id).status, "validated");
+    assert.equal(provedBootstrap.edges.find((item) => item.id === provesEdge.id).verificationStatus, "verified");
+    assert.equal(provedBootstrap.notifications.some((item) => item.type === "conjecture_proved" && item.entityId === conjecture.id), true);
   });
 });

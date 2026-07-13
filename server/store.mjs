@@ -66,9 +66,11 @@ export class MathHiveStore extends EventEmitter {
     this.data.storeRevision ||= 0;
     this.data.agentStatus ||= { state: "offline", currentWorkType: null, updatedAt: now() };
     for (const result of this.data.results) {
-      result.kind ||= result.tags?.includes("conjecture") ? "conjecture" : "result";
+      result.kind ||= result.tags?.includes("conjecture") ? "conjecture" : result.tags?.includes("proof") ? "proof" : "result";
       result.relevanceStatus ||= null;
+      result.provedByProofIds ||= [];
     }
+    for (const edge of this.data.edges) if (edge.relation === "proves") edge.verificationStatus ||= "proposed";
   }
 
   #hydrateSeedRevisions() {
@@ -105,7 +107,7 @@ export class MathHiveStore extends EventEmitter {
 
   async mutate(fn) {
     let output;
-    this.writeChain = this.writeChain.then(async () => {
+    const operation = this.writeChain.then(async () => {
       const mutation = await fn(this.data) || {};
       this.data.storeRevision += 1;
       await this.#save();
@@ -114,7 +116,8 @@ export class MathHiveStore extends EventEmitter {
         this.emit("event", { ...event, storeRevision: this.data.storeRevision });
       }
     });
-    await this.writeChain;
+    this.writeChain = operation.catch(() => {});
+    await operation;
     return clone(output);
   }
 
@@ -304,14 +307,14 @@ export class MathHiveStore extends EventEmitter {
     return this.mutate((data) => {
       const result = {
         id: randomUUID(), spaceId: space.id, title: String(input.title || "Untitled result").slice(0, 120),
-        kind: input.kind === "conjecture" || input.tags?.includes("conjecture") ? "conjecture" : "result", relevanceStatus: null,
+        kind: input.kind === "conjecture" || input.tags?.includes("conjecture") ? "conjecture" : input.kind === "proof" || input.tags?.includes("proof") ? "proof" : "result", relevanceStatus: null,
         statementLatex: String(input.statementLatex || ""), hypothesesLatex: Array.isArray(input.hypothesesLatex) ? input.hypothesesLatex.map(String) : [],
         proofMarkdown: String(input.proofMarkdown || ""), status: "draft", version: 0, draftRevision: 1,
         submittedRevisionId: null, lastCodexReviewAt: null, lastCodexReviewContentLength: 0,
         citation: String(input.citation || ""), bibtex: String(input.bibtex || ""), sourceType: "original",
         sourceSpaceId: null, sourceResultId: null, tags: Array.isArray(input.tags) ? input.tags.map(String) : [],
         dependencyIds: Array.isArray(input.dependencyIds) ? input.dependencyIds : [], x: Number(input.x ?? 360), y: Number(input.y ?? 260),
-        starredBy: [], createdBy: profile.id, updatedBy: profile.id, createdAt: now(), updatedAt: now()
+        starredBy: [], provedByProofIds: [], createdBy: profile.id, updatedBy: profile.id, createdAt: now(), updatedAt: now()
       };
       data.results.push(result);
       const activity = this.#activity(data, { spaceId: space.id, actorId: profile.id, action: "result.created", entityType: "result", entityId: result.id, summary: `${profile.displayName} created ${result.title}.` });
@@ -330,7 +333,7 @@ export class MathHiveStore extends EventEmitter {
       for (const [key, value] of Object.entries(patch)) {
         if (!EDITABLE_FIELDS.has(key)) continue;
         if (["x", "y"].includes(key)) result[key] = Math.max(0, Math.min(key === "x" ? 900 : 850, Number(value) || 0));
-        else if (key === "kind") result[key] = value === "conjecture" ? "conjecture" : "result";
+        else if (key === "kind") result[key] = ["conjecture", "proof"].includes(value) ? value : "result";
         else if (["hypothesesLatex", "tags", "dependencyIds"].includes(key)) result[key] = Array.isArray(value) ? value.map(String) : [];
         else result[key] = String(value);
       }
@@ -418,6 +421,10 @@ export class MathHiveStore extends EventEmitter {
       if (result.status !== "draft") throw new StoreError("not_a_draft", "Only drafts can be submitted.", 409);
       if (!result.statementLatex.trim()) throw new StoreError("incomplete_result", "Add a mathematical statement before submitting.");
       if (result.kind !== "conjecture" && !result.proofMarkdown.trim()) throw new StoreError("incomplete_result", "Add a statement and proof before submitting.");
+      if (result.kind === "proof") {
+        const provesEdge = data.edges.find((edge) => edge.sourceResultId === result.id && edge.relation === "proves" && edge.verificationStatus === "proposed");
+        if (!provesEdge) throw new StoreError("missing_proves_edge", "Link this proof to the conjecture it proves before submitting.");
+      }
       data.workQueue = data.workQueue.filter((item) => !(item.entityId === resultId && item.type === "review_draft" && item.status === "pending"));
       result.version += 1;
       result.status = "pending_review";
@@ -441,9 +448,20 @@ export class MathHiveStore extends EventEmitter {
       const target = data.results.find((item) => item.id === input.targetResultId);
       if (!source || !target || source.spaceId !== target.spaceId) throw new StoreError("invalid_edge", "Both results must exist in the same theorem space.");
       if (source.id === target.id) throw new StoreError("invalid_edge", "A result cannot depend on itself.");
-      const relation = ["depends_on", "supports", "conflicts_with", "contributes_to"].includes(input.relation) ? input.relation : "depends_on";
+      const relation = ["depends_on", "supports", "conflicts_with", "contributes_to", "proves"].includes(input.relation) ? input.relation : "depends_on";
+      if (relation === "proves") {
+        if (source.kind !== "proof") throw new StoreError("invalid_proof_source", "Only a Proof contribution can create a proves relationship.");
+        if (target.kind !== "conjecture") throw new StoreError("invalid_proof_target", "A proves relationship must target a conjecture.");
+        if (!["conjecture", "proved"].includes(target.status)) throw new StoreError("unreviewed_proof_target", "The target conjecture must complete relevance review before it can be proved.", 409);
+        if (data.edges.some((edge) => edge.sourceResultId === source.id && edge.relation === "proves")) throw new StoreError("proof_target_exists", "This proof already targets a conjecture.", 409);
+      }
       if (data.edges.some((edge) => edge.sourceResultId === source.id && edge.targetResultId === target.id && edge.relation === relation)) throw new StoreError("duplicate_edge", "That relationship already exists.", 409);
-      const edge = { id: randomUUID(), spaceId: source.spaceId, sourceResultId: source.id, targetResultId: target.id, relation, createdBy: profile.id, createdAt: now() };
+      const edge = {
+        id: randomUUID(), spaceId: source.spaceId, sourceResultId: source.id, targetResultId: target.id, relation,
+        verificationStatus: relation === "proves" ? "proposed" : null,
+        targetRevisionId: relation === "proves" ? target.submittedRevisionId : null,
+        verifiedBy: null, verifiedAt: null, createdBy: profile.id, createdAt: now()
+      };
       data.edges.push(edge);
       return { result: edge, events: [{ type: "entity.upsert", entityType: "edge", entity: edge, spaceId: edge.spaceId }] };
     });
@@ -454,6 +472,7 @@ export class MathHiveStore extends EventEmitter {
     return this.mutate((data) => {
       const index = data.edges.findIndex((item) => item.id === id);
       if (index < 0) throw new StoreError("edge_not_found", "Edge not found.", 404);
+      if (data.edges[index].relation === "proves" && data.edges[index].verificationStatus === "verified") throw new StoreError("verified_edge_locked", "A verified proves relationship cannot be deleted.", 409);
       const [edge] = data.edges.splice(index, 1);
       return { result: edge, events: [{ type: "entity.delete", entityType: "edge", id, spaceId: edge.spaceId }] };
     });
@@ -509,6 +528,7 @@ export class MathHiveStore extends EventEmitter {
       const events = [];
       for (const command of suggestion.proposedChanges || []) {
         if (command.type === "create_edge") {
+          if (command.relation === "proves") continue;
           const source = data.results.find((item) => item.id === command.sourceResultId);
           const target = data.results.find((item) => item.id === command.targetResultId);
           if (!source || !target || source.spaceId !== suggestion.spaceId || target.spaceId !== suggestion.spaceId) continue;
@@ -577,9 +597,14 @@ export class MathHiveStore extends EventEmitter {
     const result = this.getResult(work.entityId);
     if (!result) throw new StoreError("result_not_found", "Result not found.", 404);
     const resultIds = new Set([result.id, ...(result.dependencyIds || [])]);
+    const provesEdge = result.kind === "proof" ? this.data.edges.find((edge) => edge.sourceResultId === result.id && edge.relation === "proves") : null;
+    const proofTarget = provesEdge ? this.getResult(provesEdge.targetResultId) : null;
     return clone({
       work, result,
       targetRevision: this.data.revisions.find((item) => item.id === work.targetRevision) || null,
+      provesEdge,
+      proofTarget,
+      proofTargetRevision: provesEdge ? this.data.revisions.find((item) => item.id === provesEdge.targetRevisionId) || null : null,
       edges: this.data.edges.filter((edge) => edge.sourceResultId === result.id || edge.targetResultId === result.id),
       dependencies: this.data.results.filter((item) => resultIds.has(item.id) && item.id !== result.id),
       reviews: this.data.reviews.filter((item) => item.resultId === result.id),
@@ -599,7 +624,7 @@ export class MathHiveStore extends EventEmitter {
   researchContext(workId, { tags = [], limit = 200, resultIds = [] } = {}) {
     const work = this.data.workQueue.find((item) => item.id === workId && item.status === "claimed" && item.type === "suggest_integrations");
     if (!work) throw new StoreError("invalid_work", "Claimed integration work is required.", 409);
-    let results = this.data.results.filter((item) => item.spaceId !== work.spaceId && ["validated", "imported", "draft", "pending_review", "conjecture"].includes(item.status));
+    let results = this.data.results.filter((item) => item.spaceId !== work.spaceId && ["validated", "imported", "draft", "pending_review", "conjecture", "proved"].includes(item.status));
     if (tags.length) results = results.filter((item) => item.tags?.some((tag) => tags.includes(tag)));
     if (resultIds.length) results = results.filter((item) => resultIds.includes(item.id)).slice(0, 10);
     else results = results.slice(0, Math.min(200, Number(limit) || 200));
@@ -648,19 +673,43 @@ export class MathHiveStore extends EventEmitter {
       const work = this.#requireClaimed(data, input.workId, "validate_result");
       const result = data.results.find((item) => item.id === work.entityId);
       if (work.targetRevision !== input.submittedRevisionId || result.submittedRevisionId !== input.submittedRevisionId) throw new StoreError("revision_mismatch", "Validation must target the submitted revision.", 409);
+      const provesEdge = result.kind === "proof" ? data.edges.find((edge) => edge.sourceResultId === result.id && edge.relation === "proves") : null;
+      const proofTarget = provesEdge ? data.results.find((item) => item.id === provesEdge.targetResultId) : null;
+      if (result.kind === "proof" && (!provesEdge || provesEdge.id !== input.provesEdgeId || !proofTarget)) throw new StoreError("proves_edge_mismatch", "Proof validation must target its proposed proves relationship.", 409);
+      if (result.kind === "proof" && provesEdge.targetRevisionId !== proofTarget.submittedRevisionId) throw new StoreError("proof_target_changed", "The target conjecture changed after this proof was linked.", 409);
       if (result.proofMarkdown.length > 80 && !(input.proofStepChecks || []).length) throw new StoreError("missing_step_checks", "Nontrivial proofs require proof-step checks.");
       const decision = ["validated", "needs_changes", "rejected"].includes(input.decision) ? input.decision : "needs_changes";
-      const review = { id: randomUUID(), resultId: result.id, reviewerType: "codex", reviewerId: "codex", decision, summary: String(input.summary || ""), claimRestatement: String(input.claimRestatement || ""), assumptionChecks: clone(input.assumptionChecks || []), proofStepChecks: clone(input.proofStepChecks || []), dependencyChecks: clone(input.dependencyChecks || []), counterexampleRisks: clone(input.counterexampleRisks || []), issues: clone(input.issues || []), confidence: Number(input.confidence || 0), createdAt: now() };
+      const review = { id: randomUUID(), resultId: result.id, reviewerType: "codex", reviewerId: "codex", decision, summary: String(input.summary || ""), claimRestatement: String(input.claimRestatement || ""), assumptionChecks: clone(input.assumptionChecks || []), proofStepChecks: clone(input.proofStepChecks || []), dependencyChecks: clone(input.dependencyChecks || []), counterexampleRisks: clone(input.counterexampleRisks || []), issues: clone(input.issues || []), confidence: Number(input.confidence || 0), provesEdgeId: provesEdge?.id || null, proofTargetResultId: proofTarget?.id || null, createdAt: now() };
       data.reviews.push(review);
       result.status = decision === "validated" ? "validated" : decision === "rejected" ? "rejected" : "draft";
       result.updatedAt = now();
       const revision = data.revisions.find((item) => item.id === input.submittedRevisionId);
       if (revision) revision.status = result.status;
+      const extraEvents = [];
+      if (provesEdge) {
+        provesEdge.verificationStatus = decision === "validated" ? "verified" : decision === "rejected" ? "rejected" : "proposed";
+        provesEdge.verifiedBy = decision === "validated" ? "codex" : null;
+        provesEdge.verifiedAt = decision === "validated" ? now() : null;
+        extraEvents.push({ type: "entity.upsert", entityType: "edge", entity: clone(provesEdge), spaceId: result.spaceId });
+        if (decision === "validated") {
+          proofTarget.status = "proved";
+          proofTarget.provedByProofIds ||= [];
+          if (!proofTarget.provedByProofIds.includes(result.id)) proofTarget.provedByProofIds.push(result.id);
+          proofTarget.updatedAt = now();
+          const targetRevision = data.revisions.find((item) => item.id === proofTarget.submittedRevisionId);
+          if (targetRevision) targetRevision.status = "proved";
+          extraEvents.push(...this.#eventsFor("result", proofTarget));
+        }
+      }
       if (decision === "validated") this.#queue(data, { type: "suggest_integrations", spaceId: result.spaceId, entityId: result.id, targetRevision: input.submittedRevisionId, payload: { authorId: result.createdBy } });
       const notification = this.#notification(data, { spaceId: result.spaceId, userId: result.createdBy, type: "validation", title: input.notification?.title || "Codex review complete", body: input.notification?.body || review.summary, entityType: "result", entityId: result.id, dedupeKey: `validation:${result.id}:${input.submittedRevisionId}` });
+      const proofNotification = provesEdge && decision === "validated" ? this.#notification(data, { spaceId: result.spaceId, userId: proofTarget.createdBy, type: "conjecture_proved", title: "Conjecture proved", body: `${result.title} was validated as a proof of ${proofTarget.title}.`, entityType: "result", entityId: proofTarget.id, dedupeKey: `proved:${proofTarget.id}:${result.id}` }) : null;
       const activity = this.#activity(data, { spaceId: result.spaceId, actorType: "codex", actorId: "codex", action: `result.${decision}`, entityType: "result", entityId: result.id, summary: `Codex marked ${result.title} as ${decision.replace("_", " ")}.` });
       this.#complete(data, work);
-      return { result: { result, review }, events: [...this.#eventsFor("result", result), { type: "entity.upsert", entityType: "review", entity: review, spaceId: result.spaceId }, { type: "notification.new", notification, spaceId: result.spaceId, audienceUserIds: [result.createdBy] }, { type: "activity.new", entity: activity, spaceId: result.spaceId }, { type: "queue.changed", spaceId: result.spaceId, pendingCount: this.pendingWorkCount(data) }, { type: "agent.status", state: data.agentStatus }] };
+      const events = [...this.#eventsFor("result", result), { type: "entity.upsert", entityType: "review", entity: review, spaceId: result.spaceId }, ...extraEvents, { type: "notification.new", notification, spaceId: result.spaceId, audienceUserIds: [result.createdBy] }];
+      if (proofNotification) events.push({ type: "notification.new", notification: proofNotification, spaceId: result.spaceId, audienceUserIds: [proofTarget.createdBy] });
+      events.push({ type: "activity.new", entity: activity, spaceId: result.spaceId }, { type: "queue.changed", spaceId: result.spaceId, pendingCount: this.pendingWorkCount(data) }, { type: "agent.status", state: data.agentStatus });
+      return { result: { result, review, provesEdge, proofTarget }, events };
     });
   }
 
@@ -737,6 +786,12 @@ export class MathHiveStore extends EventEmitter {
       const key = `${edge.sourceResultId}:${edge.targetResultId}:${edge.relation}`;
       if (edgeKeys.has(key)) warnings.push({ type: "duplicate_edge", edgeId: edge.id });
       edgeKeys.add(key);
+      if (edge.relation === "proves") {
+        const source = nodes.find((item) => item.id === edge.sourceResultId);
+        const target = nodes.find((item) => item.id === edge.targetResultId);
+        if (source?.kind !== "proof" || target?.kind !== "conjecture") warnings.push({ type: "invalid_proves_edge", edgeId: edge.id });
+        if (edge.verificationStatus === "verified" && target?.status !== "proved") warnings.push({ type: "unpromoted_proof_target", edgeId: edge.id });
+      }
     }
     for (const node of nodes) if (!Number.isFinite(node.x) || !Number.isFinite(node.y) || node.x < 0 || node.y < 0 || node.x > 900 || node.y > 850) warnings.push({ type: "off_canvas", resultId: node.id });
     const statusCounts = nodes.reduce((counts, item) => {

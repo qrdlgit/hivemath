@@ -165,7 +165,7 @@ function relativeTime(timestamp) {
 }
 
 function resultType(result) {
-  if (result.status === "validated") return "validated";
+  if (["validated", "proved"].includes(result.status)) return "validated";
   if (result.status === "imported") return "imported";
   if (result.status === "conjecture") return "conjecture";
   if (["conflict_resolved", "rejected"].includes(result.status)) return "conflict";
@@ -176,6 +176,7 @@ function resultType(result) {
 function statusLabel(status) {
   return ({
     validated: "Validated",
+    proved: "Proved",
     imported: "Imported",
     conjecture: "Relevant",
     pending_review: "Pending review",
@@ -317,12 +318,13 @@ function renderNodes() {
     const starred = Boolean(result.starredBy?.length);
     const lock = state.locks.get(result.id);
     const kind = result.kind || "result";
+    const kindMeta = kind === "conjecture" ? { icon: "lightbulb", label: "Conjecture" } : kind === "proof" ? { icon: "file-check-2", label: "Proof" } : null;
     return `<article class="result-node ${type} kind-${kind} ${filtered ? "filtered" : ""}" data-node-id="${result.id}" style="left:${result.x}px;top:${result.y}px" tabindex="0">
       <header class="node-heading"><span class="node-status">${nodeStatusIcon(type)}</span><strong>${escapeHtml(result.title)}</strong>
         <button class="star-button ${starred ? "starred" : ""}" data-star-id="${result.id}" title="${result.starredBy?.length || 0} star${result.starredBy?.length === 1 ? "" : "s"}" aria-label="Star result">${icon("star")}</button>
       </header>
       <div class="node-body"><div class="formula" data-result-math="${result.id}"></div>
-        <div class="status-row">${kind === "conjecture" ? `<span class="kind-pill">${icon("lightbulb")} Conjecture</span>` : ""}<span class="status-pill">${escapeHtml(statusLabel(result.status))}</span><span class="version">v${result.version || 0}.${result.draftRevision || 0}</span></div>
+        <div class="status-row">${kindMeta ? `<span class="kind-pill ${kind}">${icon(kindMeta.icon)} ${kindMeta.label}</span>` : ""}<span class="status-pill">${escapeHtml(statusLabel(result.status))}</span><span class="version">v${result.version || 0}.${result.draftRevision || 0}</span></div>
         <div class="citation">${lock ? `${escapeHtml(lock.displayName)} editing` : escapeHtml(result.citation || authorName(result.createdBy))}</div>
       </div>
     </article>`;
@@ -383,12 +385,13 @@ function measureMixedContentWidth(formula) {
   return width;
 }
 
-function edgeClass(relation) {
-  return ({ depends_on: "depends", supports: "support", conflicts_with: "alternative", contributes_to: "import" })[relation] || "depends";
+function edgeClass(edge) {
+  if (edge.relation === "proves") return `proves ${edge.verificationStatus || "proposed"}`;
+  return ({ depends_on: "depends", supports: "support", conflicts_with: "alternative", contributes_to: "import" })[edge.relation] || "depends";
 }
 
 function renderEdges() {
-  edgeLayer.querySelectorAll(".graph-edge").forEach((element) => element.remove());
+  edgeLayer.querySelectorAll(".graph-edge, .edge-label").forEach((element) => element.remove());
   state.edges.forEach((edge, index) => {
     const sourceElement = $(`[data-node-id="${edge.sourceResultId}"]`);
     const targetElement = $(`[data-node-id="${edge.targetResultId}"]`);
@@ -411,8 +414,17 @@ function renderEdges() {
     const bend = ((index % 3) - 1) * 12;
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", `M ${start.x} ${start.y} Q ${(start.x + end.x) / 2 + (vertical ? bend : 0)} ${(start.y + end.y) / 2 + (vertical ? 0 : bend)} ${end.x} ${end.y}`);
-    path.setAttribute("class", `graph-edge ${edgeClass(edge.relation)}`);
+    path.setAttribute("class", `graph-edge ${edgeClass(edge)}`);
     edgeLayer.append(path);
+    if (edge.relation === "proves") {
+      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      label.setAttribute("x", String((start.x + end.x) / 2 + (vertical ? bend : 0)));
+      label.setAttribute("y", String((start.y + end.y) / 2 + (vertical ? -7 : bend - 7)));
+      label.setAttribute("class", `edge-label proves ${edge.verificationStatus || "proposed"}`);
+      label.setAttribute("text-anchor", "middle");
+      label.textContent = edge.verificationStatus === "verified" ? "proves" : "proves?";
+      edgeLayer.append(label);
+    }
   });
 }
 
@@ -620,7 +632,8 @@ function currentResult() {
 
 function updateEditorHeader(result) {
   $("#editorHeading").textContent = result.title;
-  $("#editorStatus").textContent = `${result.kind === "conjecture" ? "Conjecture · " : ""}${statusLabel(result.status)} · v${result.version || 0}.${result.draftRevision || 0}`;
+  const kindLabel = result.kind === "conjecture" ? "Conjecture · " : result.kind === "proof" ? "Proof · " : "";
+  $("#editorStatus").textContent = `${kindLabel}${statusLabel(result.status)} · v${result.version || 0}.${result.draftRevision || 0}`;
   $("#editorStar").classList.toggle("starred", Boolean(result.starredBy?.length));
   $("#submitResult").disabled = result.status !== "draft";
 }
@@ -641,9 +654,9 @@ function openResult(resultId) {
   $("#resultCitation").value = result.citation || "";
   const kindControl = $(`input[name="resultKind"][value="${result.kind || "result"}"]`);
   if (kindControl) kindControl.checked = true;
-  $("#resultDependency").innerHTML = '<option value="">Choose a result</option>' + state.results.filter((item) => item.id !== result.id).map((item) => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join("");
-  $("#resultDependency").value = result.dependencyIds?.[0] || "";
-  $("#resultRelation").value = "depends_on";
+  const provesEdge = state.edges.find((edge) => edge.sourceResultId === result.id && edge.relation === "proves");
+  populateRelatedResults(provesEdge?.targetResultId || result.dependencyIds?.[0] || "");
+  $("#resultRelation").value = result.kind === "proof" ? "proves" : "depends_on";
   updateContributionKindUI();
   renderEditorPreview();
   renderFeedback();
@@ -672,6 +685,7 @@ function applyEditorLock() {
   const otherEditor = lock && lock.profileId !== state.profile.id;
   const readOnly = result.status !== "draft" || otherEditor;
   $$("#resultForm input, #resultForm textarea, #resultForm select").forEach((input) => { input.disabled = readOnly; });
+  if (!readOnly && selectedContributionKind() === "proof") $("#resultRelation").disabled = true;
   $("#reviewDraft").disabled = readOnly;
   $("#addRelationship").disabled = readOnly;
   $("#submitResult").disabled = readOnly;
@@ -691,25 +705,49 @@ function selectedContributionKind() {
 }
 
 function updateContributionKindUI() {
-  const conjecture = selectedContributionKind() === "conjecture";
+  const kind = selectedContributionKind();
+  const conjecture = kind === "conjecture";
+  const proof = kind === "proof";
+  $("#statementLabel").textContent = proof ? "Claim proved (LaTeX)" : "Statement (LaTeX)";
+  $("#renderedStatementLabel").textContent = proof ? "Rendered claim" : "Rendered statement";
+  $("#hypothesesLabel").textContent = proof ? "Claim hypotheses, one LaTeX expression per line" : "Hypotheses, one LaTeX expression per line";
   $("#reasoningLabel").textContent = conjecture ? "Rationale / evidence (Markdown + LaTeX, optional)" : "Proof (Markdown + LaTeX)";
   $("#renderedReasoningLabel").textContent = conjecture ? "Rendered rationale" : "Rendered proof";
   $("#resultProof").required = !conjecture;
   $("#resultProof").placeholder = conjecture ? "Explain why the conjecture may be plausible or useful. Use $...$ for inline math." : "State each step. Use $...$ for inline math and $$...$$ for display math.";
   $("#proofPreview").setAttribute("aria-label", conjecture ? "Rendered rationale" : "Rendered proof");
-  $("#feedbackTitle").textContent = conjecture ? "Conjecture relevance check" : "Realtime proof check";
-  $("#reviewDraft").textContent = conjecture ? "Check relevance" : "Ask Codex now";
-  $("#submitResultLabel").textContent = conjecture ? "Submit conjecture for review" : "Submit for AI validation";
+  $("#relatedResultLabel").textContent = proof ? "Conjecture proved" : "Related result";
+  $("#resultRelation").value = proof ? "proves" : $("#resultRelation").value === "proves" ? "depends_on" : $("#resultRelation").value;
+  $("#resultRelation").disabled = proof;
+  $("#feedbackTitle").textContent = conjecture ? "Conjecture relevance check" : proof ? "Proof verification" : "Realtime proof check";
+  $("#reviewDraft").textContent = conjecture ? "Check relevance" : proof ? "Check proof" : "Ask Codex now";
+  $("#submitResultLabel").textContent = conjecture ? "Submit conjecture for review" : proof ? "Submit proof for validation" : "Submit for AI validation";
+}
+
+function populateRelatedResults(selectedId = "") {
+  const proof = selectedContributionKind() === "proof";
+  const candidates = state.results.filter((item) => item.id !== state.selectedResultId && (!proof || (item.kind === "conjecture" && ["conjecture", "proved"].includes(item.status))));
+  $("#resultDependency").innerHTML = `<option value="">${proof ? "Choose an accepted conjecture" : "Choose a result"}</option>` + candidates.map((item) => `<option value="${item.id}">${escapeHtml(item.title)}${proof ? ` · ${escapeHtml(statusLabel(item.status))}` : ""}</option>`).join("");
+  $("#resultDependency").value = candidates.some((item) => item.id === selectedId) ? selectedId : "";
 }
 
 function renderLocalChecks() {
   const statement = $("#resultStatement").value.trim();
   const proof = $("#resultProof").value.trim();
   const hypotheses = $("#resultHypotheses").value.trim();
-  const conjecture = selectedContributionKind() === "conjecture";
+  const kind = selectedContributionKind();
+  const conjecture = kind === "conjecture";
+  const proofContribution = kind === "proof";
   const relatedId = $("#resultDependency").value;
-  const linked = Boolean(relatedId && state.edges.some((edge) => edge.sourceResultId === relatedId && edge.targetResultId === state.selectedResultId));
-  const checks = conjecture ? [
+  const linked = Boolean(relatedId && state.edges.some((edge) => proofContribution
+    ? edge.sourceResultId === state.selectedResultId && edge.targetResultId === relatedId && edge.relation === "proves"
+    : edge.sourceResultId === relatedId && edge.targetResultId === state.selectedResultId));
+  const checks = proofContribution ? [
+    { pass: linked, text: "Link this proof to the accepted conjecture it proves." },
+    { pass: statement.length > 8, text: "The claimed conclusion is present." },
+    { pass: proof.length >= 80, text: proof.length >= 80 ? "Proof has enough detail for AI review." : "Expand the proof beyond a short assertion." },
+    { pass: /because|since|therefore|hence|implies|apply|assume|suppose/i.test(proof), text: "Make logical transitions and invoked results explicit." }
+  ] : conjecture ? [
     { pass: statement.length > 8, text: statement.length > 8 ? "Conjecture is stated precisely enough to review." : "Add a precise conjecture statement." },
     { pass: Boolean(hypotheses) || /for all|forall|every/i.test(statement), text: "State the hypotheses and quantifier scope." },
     { pass: linked, text: "Link the conjecture to the problem or result it advances." },
@@ -802,7 +840,8 @@ async function saveEditor() {
 
 async function createResult(kind = "result") {
   try {
-    const result = await api("/api/results", { method: "POST", body: { spaceId: state.space.id, kind, title: kind === "conjecture" ? "Untitled conjecture" : "Untitled result", x: 390, y: 330 } });
+    const title = kind === "conjecture" ? "Untitled conjecture" : kind === "proof" ? "Untitled proof" : "Untitled result";
+    const result = await api("/api/results", { method: "POST", body: { spaceId: state.space.id, kind, title, x: 390, y: 330 } });
     upsert(state.results, result);
     renderNodes();
     openResult(result.id);
@@ -827,15 +866,36 @@ async function addRelationship() {
   const relation = $("#resultRelation").value;
   if (!relatedId) return showToast("Choose a related result first.", "error");
   try {
-    const edge = await api("/api/edges", { method: "POST", body: { sourceResultId: relatedId, targetResultId: result.id, relation } });
+    if (relation === "proves") {
+      const target = state.results.find((item) => item.id === relatedId);
+      $("#resultStatement").value = target.statementLatex || "";
+      $("#resultHypotheses").value = (target.hypothesesLatex || []).join("\n");
+      renderEditorPreview();
+      await saveEditor();
+    }
+    const edge = await api("/api/edges", { method: "POST", body: {
+      sourceResultId: relation === "proves" ? result.id : relatedId,
+      targetResultId: relation === "proves" ? relatedId : result.id,
+      relation
+    } });
     upsert(state.edges, edge);
+    if (relation === "proves") {
+      const target = state.results.find((item) => item.id === relatedId);
+      const proof = currentResult();
+      if (target && proof && Math.abs(Number(proof.x) - Number(target.x)) < 80 && Math.abs(Number(proof.y) - Number(target.y)) < 80) {
+        const x = target.x <= 580 ? Math.min(900, Number(target.x) + 300) : Math.max(0, Number(target.x) - 300);
+        const positioned = await api(`/api/results/${proof.id}`, { method: "PATCH", body: { x, y: Math.min(850, Number(target.y) + 170) } });
+        upsert(state.results, positioned);
+        renderNodes();
+      }
+    }
     if (relation === "depends_on" && !result.dependencyIds.includes(relatedId)) {
       const updated = await api(`/api/results/${result.id}`, { method: "PATCH", body: { dependencyIds: [...result.dependencyIds, relatedId] } });
       upsert(state.results, updated);
     }
     renderEdges();
     renderLocalChecks();
-    showToast("Graph relation added");
+    showToast(relation === "proves" ? "Proposed proof link added" : "Graph relation added");
   } catch (error) { showToast(error.message, "error"); }
 }
 
@@ -846,7 +906,7 @@ async function requestDraftReview() {
     state.pendingWorkCount += 1;
     renderAgentStatus();
     renderFeedback();
-    showToast(currentResult()?.kind === "conjecture" ? "Conjecture relevance check queued" : "Draft review queued for Codex");
+    showToast(currentResult()?.kind === "conjecture" ? "Conjecture relevance check queued" : currentResult()?.kind === "proof" ? "Proof check queued" : "Draft review queued for Codex");
   } catch (error) { showToast(error.message, "error"); }
 }
 
@@ -863,7 +923,7 @@ async function submitCurrentResult() {
     applyEditorLock();
     renderNodes();
     renderRevisions();
-    showToast(result.kind === "conjecture" ? "Conjecture queued for relevance review" : "Submitted revision queued for AI validation");
+    showToast(result.kind === "conjecture" ? "Conjecture queued for relevance review" : result.kind === "proof" ? "Proof and proposed edge queued for validation" : "Submitted revision queued for AI validation");
   } catch (error) { showToast(error.message, "error"); }
 }
 
@@ -889,7 +949,7 @@ async function actOnSuggestion(id, action) {
 }
 
 function notificationIcon(type) {
-  return ({ validation: "badge-check", relevance: "network", conjecture_review: "lightbulb", draft_feedback: "sparkles", agent_failed: "circle-alert" })[type] || "bell";
+  return ({ validation: "badge-check", relevance: "network", conjecture_review: "lightbulb", conjecture_proved: "file-check-2", draft_feedback: "sparkles", agent_failed: "circle-alert" })[type] || "bell";
 }
 
 function renderNotifications() {
@@ -1045,6 +1105,11 @@ function bindEvents() {
     $("#creationMenuToggle").setAttribute("aria-expanded", "false");
     createResult("conjecture");
   });
+  $("#newProof").addEventListener("click", () => {
+    $("#creationPopover").hidden = true;
+    $("#creationMenuToggle").setAttribute("aria-expanded", "false");
+    createResult("proof");
+  });
   $("#fitView").addEventListener("click", fitStage);
   $("#layoutButton").addEventListener("click", async () => {
     try {
@@ -1088,11 +1153,25 @@ function bindEvents() {
   editorScrim.addEventListener("click", closeEditor);
   $$('[data-editor-tab]').forEach((button) => button.addEventListener("click", () => selectEditorTab(button.dataset.editorTab)));
   $$("#resultForm input, #resultForm textarea").forEach((input) => input.addEventListener("input", () => {
-    if (input.name === "resultKind") updateContributionKindUI();
+    if (input.name === "resultKind") {
+      populateRelatedResults();
+      updateContributionKindUI();
+    }
     renderEditorPreview();
     scheduleSave();
   }));
-  $("#resultDependency").addEventListener("change", renderLocalChecks);
+  $("#resultDependency").addEventListener("change", () => {
+    if (selectedContributionKind() === "proof") {
+      const target = state.results.find((item) => item.id === $("#resultDependency").value);
+      if (target) {
+        $("#resultStatement").value = target.statementLatex || "";
+        $("#resultHypotheses").value = (target.hypothesesLatex || []).join("\n");
+        renderEditorPreview();
+        scheduleSave();
+      }
+    }
+    renderLocalChecks();
+  });
   $("#editorStar").addEventListener("click", async () => {
     const result = await api(`/api/results/${state.selectedResultId}/star`, { method: "POST", body: {} });
     upsert(state.results, result);

@@ -86,6 +86,34 @@ test("MCP polls, claims context, and pushes draft feedback into MathHive", async
     const afterConjecture = await (await fetch(`${baseUrl}/api/bootstrap?spaceId=${joined.space.id}`, { headers: { Authorization: `Bearer ${joined.token}` } })).json();
     assert.equal(afterConjecture.results.find((item) => item.id === conjecture.id).status, "conjecture");
     assert.equal(afterConjecture.notifications.some((item) => item.type === "conjecture_review"), true);
+
+    const proof = await (await fetch(`${baseUrl}/api/results`, { method: "POST", headers, body: JSON.stringify({ spaceId: joined.space.id, kind: "proof", title: "MCP proof" }) })).json();
+    await fetch(`${baseUrl}/api/results/${proof.id}`, { method: "PATCH", headers, body: JSON.stringify({
+      statementLatex: "x=x \\Longrightarrow x=x", hypothesesLatex: ["x \\in X"],
+      proofMarkdown: "Assume $x=x$. The conclusion is the identical equality $x=x$, so it follows immediately from the assumption. Therefore the linked implication is established for every $x \\in X$."
+    }) });
+    const edge = await (await fetch(`${baseUrl}/api/edges`, { method: "POST", headers, body: JSON.stringify({ sourceResultId: proof.id, targetResultId: conjecture.id, relation: "proves" }) })).json();
+    assert.equal(edge.verificationStatus, "proposed");
+    const proofSubmission = await (await fetch(`${baseUrl}/api/results/${proof.id}/submit`, { method: "POST", headers, body: "{}" })).json();
+    const proofWork = parsed(await client.callTool({ name: "get_next_work", arguments: {} }));
+    assert.equal(proofWork.work.type, "validate_result");
+    const proofContext = parsed(await client.callTool({ name: "get_work_context", arguments: { workId: proofWork.work.id } }));
+    assert.equal(proofContext.provesEdge.id, edge.id);
+    assert.equal(proofContext.proofTarget.id, conjecture.id);
+    parsed(await client.callTool({ name: "submit_validation", arguments: {
+      workId: proofWork.work.id,
+      submittedRevisionId: proofSubmission.result.submittedRevisionId,
+      provesEdgeId: edge.id,
+      decision: "validated", claimRestatement: "For every x in X, x=x implies x=x.",
+      summary: "The proof establishes the exact linked conjecture.",
+      assumptionChecks: [{ subject: "x in X", status: "pass", explanation: "No additional structure on X is required." }],
+      proofStepChecks: [{ stepId: "step-1", status: "pass", explanation: "The conclusion is identical to the assumed equality." }],
+      dependencyChecks: [], counterexampleRisks: [], issues: [], confidence: 99,
+      notification: { title: "MCP proof validated", body: "The proves edge is verified." }
+    } }));
+    const afterProof = await (await fetch(`${baseUrl}/api/bootstrap?spaceId=${joined.space.id}`, { headers: { Authorization: `Bearer ${joined.token}` } })).json();
+    assert.equal(afterProof.results.find((item) => item.id === conjecture.id).status, "proved");
+    assert.equal(afterProof.edges.find((item) => item.id === edge.id).verificationStatus, "verified");
   } finally {
     await client.close().catch(() => {});
     await runtime.stop();

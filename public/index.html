@@ -76,7 +76,7 @@
 
         <section class="legend-panel">
           <h2>Legend</h2>
-          <div class="legend-item"><span class="status-symbol validated"><i data-lucide="check"></i></span><span>Validated</span></div>
+          <div class="legend-item"><span class="status-symbol validated"><i data-lucide="check"></i></span><span>Validated / proved</span></div>
           <div class="legend-item"><span class="status-symbol pending"></span><span>Pending Review</span></div>
           <div class="legend-item"><span class="status-symbol imported"><i data-lucide="download"></i></span><span>Imported</span></div>
           <div class="legend-item"><span class="status-symbol conjecture"><i data-lucide="lightbulb"></i></span><span>Relevant conjecture</span></div>
@@ -92,6 +92,7 @@
               <button class="toolbar-button creation-menu-toggle" id="creationMenuToggle" title="More contribution types" aria-label="More contribution types" aria-expanded="false"><i data-lucide="chevron-down"></i></button>
               <div class="creation-popover" id="creationPopover" role="menu" hidden>
                 <button id="newConjecture" role="menuitem"><i data-lucide="lightbulb"></i><span><strong>New conjecture</strong><small>Propose a claim for relevance review</small></span></button>
+                <button id="newProof" role="menuitem"><i data-lucide="file-check-2"></i><span><strong>New proof</strong><small>Prove an accepted conjecture</small></span></button>
               </div>
             </div>
             <button class="toolbar-button" id="fitView" aria-label="Fit to view"><i data-lucide="scan"></i><span>Fit to view</span><i data-lucide="chevron-down" class="chevron"></i></button>
@@ -117,6 +118,7 @@
                 <marker id="arrow-solid" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#334155" /></marker>
                 <marker id="arrow-dashed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" /></marker>
                 <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6" /></marker>
+                <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#16833d" /></marker>
               </defs>
             </svg>
             <div class="nodes-layer" id="nodesLayer"></div>
@@ -127,6 +129,7 @@
               <span><i class="line-sample solid"></i>Depends on</span>
               <span><i class="line-sample dashed"></i>Supports</span>
               <span><i class="line-sample dotted"></i>Conflicts with</span>
+              <span><i class="line-sample proves"></i>Proves</span>
             </aside>
           </div>
 
@@ -207,18 +210,19 @@
             <div class="segmented-control">
               <label><input type="radio" name="resultKind" value="result" checked /><span>Result</span></label>
               <label><input type="radio" name="resultKind" value="conjecture" /><span>Conjecture</span></label>
+              <label><input type="radio" name="resultKind" value="proof" /><span>Proof</span></label>
             </div>
           </fieldset>
           <label>Title<input id="resultTitle" maxlength="120" required placeholder="A precise name for this result" /></label>
           <div class="math-field-grid statement-grid">
-            <label>Statement (LaTeX)<textarea id="resultStatement" rows="4" required placeholder="\\lambda_1(G) \\ge c \\log |G|"></textarea></label>
+            <label><span id="statementLabel">Statement (LaTeX)</span><textarea id="resultStatement" rows="4" required placeholder="\\lambda_1(G) \\ge c \\log |G|"></textarea></label>
             <div class="preview-field">
-              <span class="preview-label">Rendered statement</span>
+              <span class="preview-label" id="renderedStatementLabel">Rendered statement</span>
               <div class="math-preview" id="statementPreview" aria-label="Rendered statement"></div>
             </div>
           </div>
           <div class="math-field-grid hypotheses-grid">
-            <label>Hypotheses, one LaTeX expression per line<textarea id="resultHypotheses" rows="3" placeholder="G \\text{ is finite and connected}"></textarea></label>
+            <label><span id="hypothesesLabel">Hypotheses, one LaTeX expression per line</span><textarea id="resultHypotheses" rows="3" placeholder="G \\text{ is finite and connected}"></textarea></label>
             <div class="preview-field">
               <span class="preview-label">Rendered hypotheses</span>
               <div class="math-preview hypotheses-preview" id="hypothesesPreview" aria-label="Rendered hypotheses"></div>
@@ -236,8 +240,8 @@
             <label>Citation<input id="resultCitation" placeholder="Optional source or paper" /></label>
           </div>
           <div class="two-column-fields">
-            <label>Related result<select id="resultDependency"><option value="">Choose a result</option></select></label>
-            <label>Relation<select id="resultRelation"><option value="depends_on">Depends on</option><option value="supports">Supports</option><option value="conflicts_with">Conflicts with</option></select></label>
+            <label><span id="relatedResultLabel">Related result</span><select id="resultDependency"><option value="">Choose a result</option></select></label>
+            <label>Relation<select id="resultRelation"><option value="depends_on">Depends on</option><option value="supports">Supports</option><option value="conflicts_with">Conflicts with</option><option value="proves">Proves</option></select></label>
           </div>
         </form>
 

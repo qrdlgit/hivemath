@@ -579,6 +579,12 @@ svg { display: block; }
 .graph-edge.import { stroke: #3b82f6; stroke-dasharray: 6 5; marker-end: url(#arrow-blue); }
 .graph-edge.alternative { stroke: #8995a7; stroke-dasharray: 2 4; marker-end: url(#arrow-dashed); }
 .graph-edge.depends { marker-end: url(#arrow-solid); }
+.graph-edge.proves { stroke: #16833d; stroke-width: 1.8; marker-end: url(#arrow-green); }
+.graph-edge.proves.proposed { stroke-dasharray: 5 4; opacity: .72; }
+.graph-edge.proves.verified { stroke-width: 2.4; }
+.edge-label { paint-order: stroke; fill: #546174; stroke: #fbfcfe; stroke-width: 4px; font-size: 9px; font-weight: 700; pointer-events: none; }
+.edge-label.proves { fill: #16833d; }
+.edge-label.proposed { opacity: .78; }
 
 .result-node {
   position: absolute;
@@ -643,6 +649,7 @@ svg { display: block; }
 .status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: auto; }
 .kind-pill { display: inline-flex; align-items: center; gap: 3px; padding: 3px 6px; color: #0f665f; font-size: 9px; line-height: 1; background: #e9f7f4; border: 1px solid #9bd2c9; border-radius: 10px; }
 .kind-pill svg { width: 9px; height: 9px; }
+.kind-pill.proof { color: #31558d; background: #eef5ff; border-color: #aec7eb; }
 .status-pill { padding: 3px 7px; color: var(--node-color); font-size: 10px; line-height: 1; background: color-mix(in srgb, var(--node-color) 10%, white); border: 1px solid color-mix(in srgb, var(--node-color) 35%, white); border-radius: 10px; }
 .version { color: #657085; font-size: 9px; }
 .citation { overflow: hidden; color: #838b9a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -671,6 +678,8 @@ svg { display: block; }
 .line-sample::after { position: absolute; top: -4px; right: -1px; width: 6px; height: 6px; content: ""; border-top: 1.5px solid #536174; border-right: 1.5px solid #536174; transform: rotate(45deg); }
 .line-sample.dashed { border-top-style: dashed; }
 .line-sample.dotted { border-top-style: dotted; }
+.line-sample.proves { border-top-width: 2.5px; border-top-color: #16833d; }
+.line-sample.proves::after { border-color: #16833d; }
 .line-sample.capped::after { top: -5px; width: 1px; height: 8px; border: 0; background: #536174; transform: none; }
 .line-sample.capped::before { position: absolute; top: -5px; left: 0; width: 1px; height: 8px; content: ""; background: #536174; }
 
@@ -978,7 +987,7 @@ svg { display: block; }
 .result-form { display: grid; gap: 15px; }
 .kind-field { min-width: 0; margin: 0; padding: 0; border: 0; }
 .kind-field legend { margin-bottom: 7px; color: #435067; font-size: 11px; font-weight: 600; }
-.segmented-control { display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; background: #e9eef5; border-radius: 6px; }
+.segmented-control { display: inline-grid; grid-template-columns: repeat(3, 1fr); padding: 3px; background: #e9eef5; border-radius: 6px; }
 .segmented-control label { display: block; cursor: pointer; }
 .segmented-control input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .segmented-control span { display: block; min-width: 92px; padding: 7px 14px; color: #5c687b; font-size: 10px; font-weight: 600; text-align: center; border-radius: 4px; }

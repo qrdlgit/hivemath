@@ -128,7 +128,7 @@ Is it true that for all $m\geq n+k$\[M(n,k) \neq M(m,k)?\]`);
   }
 });
 
-test("a conjecture can be authored without a proof and receives a relevance review", async ({ browser, request }) => {
+test("a conjecture and its proof complete the verified proves lifecycle", async ({ browser, request }, testInfo) => {
   const context = await browser.newContext();
   const page = await context.newPage();
   try {
@@ -140,9 +140,9 @@ test("a conjecture can be authored without a proof and receives a relevance revi
     await expect(page.locator("#submitResultLabel")).toHaveText("Submit conjecture for review");
     await expect(page.locator("#resultProof")).not.toHaveAttribute("required", "");
 
-    await page.locator("#resultTitle").fill("LCM interval conjecture");
-    await page.locator("#resultStatement").fill(String.raw`M(n,k) \neq M(m,k)`);
-    await page.locator("#resultHypotheses").fill("n,k,m \\in \\mathbb{Z}_{\\ge 1}\nm \\ge n+k");
+    await page.locator("#resultTitle").fill("LCM conjecture for k = 1");
+    await page.locator("#resultStatement").fill(String.raw`M(n,1) \neq M(m,1)`);
+    await page.locator("#resultHypotheses").fill("n,m \\in \\mathbb{Z}_{\\ge 1}\nm \\ge n+1\nM(a,1)=a+1");
     await page.locator("#resultDependency").selectOption("result-main");
     await page.getByRole("button", { name: "Add relation" }).click();
     await page.getByRole("button", { name: "Submit conjecture for review" }).click();
@@ -156,8 +156,8 @@ test("a conjecture can be authored without a proof and receives a relevance revi
     await request.post(`/api/internal/work/${claimed.work.id}/conjecture-review`, { data: {
       submittedRevisionId: workContext.result.submittedRevisionId,
       decision: "relevant",
-      summary: "This conjecture directly addresses the theorem space's root question.",
-      relevanceExplanation: "It is linked to Main Theorem and proposes a concrete number-theoretic obstruction.",
+      summary: "This conjecture isolates a concrete special case of the theorem space's root question.",
+      relevanceExplanation: "The k=1 case is a bounded specialization that can anchor later proof branches.",
       relatedResultIds: ["result-main"], issues: [], confidence: 93,
       notification: { title: "Conjecture is relevant", body: "Codex linked it to Main Theorem." }
     }});
@@ -166,9 +166,51 @@ test("a conjecture can be authored without a proof and receives a relevance revi
     await expect(page.locator("#codexFeedback")).toContainText("Related: Main Theorem");
     await expect(page.locator("#notificationsList")).toContainText("Conjecture is relevant");
     await page.locator("#closeEditor").click();
-    const node = page.locator(".result-node.kind-conjecture").filter({ hasText: "LCM interval conjecture" });
+    const node = page.locator(".result-node.kind-conjecture").filter({ hasText: "LCM conjecture for k = 1" });
     await expect(node.locator(".kind-pill")).toHaveText(/Conjecture/);
     await expect(node.locator(".status-pill")).toHaveText("Relevant");
+
+    await page.getByRole("button", { name: "More contribution types" }).click();
+    await page.getByRole("menuitem", { name: /New proof/ }).click();
+    await expect(page.locator('input[name="resultKind"][value="proof"]')).toBeChecked();
+    await expect(page.locator("#feedbackTitle")).toHaveText("Proof verification");
+    await expect(page.locator("#submitResultLabel")).toHaveText("Submit proof for validation");
+    await expect(page.locator("#resultRelation")).toHaveValue("proves");
+    await expect(page.locator("#resultRelation")).toBeDisabled();
+    await page.locator("#resultTitle").fill("Proof of the k = 1 case");
+    await page.locator("#resultDependency").selectOption(workContext.result.id);
+    await expect(page.locator("#resultStatement")).toHaveValue(String.raw`M(n,1) \neq M(m,1)`);
+    await page.locator("#resultProof").fill("For $k=1$, the interval contains one number, so $M(n,1)=n+1$ and $M(m,1)=m+1$. Since $m\\ge n+1$, we have $m+1>n+1$. Therefore $M(m,1)>M(n,1)$, which proves the linked conjecture.");
+    await page.getByRole("button", { name: "Add relation" }).click();
+    await expect(page.locator(".edge-label.proves.proposed")).toHaveText("proves?");
+    await page.getByRole("button", { name: "Submit proof for validation" }).click();
+    await expect(page.locator("#editorStatus")).toContainText("Proof · Pending review");
+
+    const proofWork = await (await request.post("/api/internal/work/next", { data: {} })).json();
+    expect(proofWork.work.type).toBe("validate_result");
+    const proofContext = await (await request.get(`/api/internal/work/${proofWork.work.id}/context`)).json();
+    expect(proofContext.result.kind).toBe("proof");
+    expect(proofContext.proofTarget.id).toBe(workContext.result.id);
+    expect(proofContext.provesEdge.verificationStatus).toBe("proposed");
+    await request.post(`/api/internal/work/${proofWork.work.id}/validation`, { data: {
+      submittedRevisionId: proofContext.result.submittedRevisionId,
+      provesEdgeId: proofContext.provesEdge.id,
+      decision: "validated",
+      claimRestatement: "For k=1 and m at least n+1, the two one-term interval LCMs differ.",
+      summary: "The strict inequality between m+1 and n+1 proves the exact linked conjecture.",
+      assumptionChecks: [{ subject: "m at least n+1", status: "pass", explanation: "This gives m+1 greater than n+1." }],
+      proofStepChecks: [{ stepId: "step-1", status: "pass", explanation: "The one-term LCM identities and strict inequality establish the claim." }],
+      dependencyChecks: [], counterexampleRisks: [], issues: [], confidence: 99,
+      notification: { title: "Proof validated", body: "The k=1 proof is valid and its proves edge is verified." }
+    }});
+    await expect(page.locator("#editorStatus")).toContainText("Proof · Validated");
+    await expect(page.locator("#notificationsList")).toContainText("Conjecture proved");
+    await page.locator("#closeEditor").click();
+    await expect(node.locator(".status-pill")).toHaveText("Proved");
+    const proofNode = page.locator(".result-node.kind-proof").filter({ hasText: "Proof of the k = 1 case" });
+    await expect(proofNode.locator(".status-pill")).toHaveText("Validated");
+    await expect(page.locator(".edge-label.proves.verified")).toHaveText("proves");
+    await page.screenshot({ path: testInfo.outputPath("verified-proof-graph.png"), fullPage: true });
   } finally {
     await context.close();
   }

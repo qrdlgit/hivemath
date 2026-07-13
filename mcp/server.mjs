@@ -28,7 +28,7 @@ const server = new McpServer({ name: "mathhive-poc", version: "0.1.0" }, {
   instructions: [
     "You are the sole mathematical review and integration agent for the local MathHive POC.",
     "Poll get_next_work. For every claimed item, get its full context, reason through the mathematics yourself, then submit exactly one matching completion command.",
-    "For validation, restate the claim, check hypotheses, dependencies, and every proof step. Do not mark a proof validated merely because it is plausible.",
+    "For validation, restate the claim, check hypotheses, dependencies, and every proof step. For Proof contributions, compare the proof against proofTarget and return provesEdge.id so the server can verify that exact edge. Do not mark a proof validated merely because it is plausible.",
     "For conjectures, assess precision and relevance to the theorem space. Conjectures are not proofs and must never be marked validated.",
     "For integration work, search other spaces, inspect full proofs of promising candidates, identify affected active authors, and submit targeted notifications plus executable graph/import changes.",
     "Use inspect_projection after commands that change graph content. If work cannot be completed, call fail_work so its lease does not remain claimed."
@@ -59,7 +59,7 @@ registerWriteTool("get_next_work", {
 }, async () => result(await command("/api/internal/work/next", { method: "POST", body: {} })));
 
 registerReadTool("get_work_context", {
-  description: "Load the exact result/revision, proof steps, hypotheses, dependencies, prior feedback, author, and graph warnings for claimed work.",
+  description: "Load the exact result/revision, proof steps, hypotheses, dependencies, prior feedback, author, graph warnings, and any proposed proves edge with its frozen target conjecture.",
   inputSchema: { workId: z.string().uuid() }
 }, async ({ workId }) => result(await command(`/api/internal/work/${workId}/context`)));
 
@@ -125,10 +125,11 @@ const stepCheckSchema = z.object({
 });
 
 registerWriteTool("submit_validation", {
-  description: "Submit Codex's manual review of a frozen submitted revision. Nontrivial proofs require explicit proofStepChecks. This updates result status and notifies its author.",
+  description: "Submit Codex's manual review of a frozen revision. For Proof contributions, provesEdgeId is required; validation verifies that edge and promotes its target conjecture to Proved.",
   inputSchema: {
     workId: z.string().uuid(),
     submittedRevisionId: z.string().min(1),
+    provesEdgeId: z.string().uuid().nullable().default(null),
     decision: z.enum(["validated", "needs_changes", "rejected"]),
     claimRestatement: z.string().min(1),
     summary: z.string().min(1),
