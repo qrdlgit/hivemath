@@ -9,7 +9,20 @@ async function join(page, name, pin) {
   await expect(page.locator("#workspaceTitle")).toHaveText("Spectral Gap Program");
 }
 
-test("two mathematicians collaborate, receive MCP-style coaching, and validate a revision", async ({ browser, request }) => {
+async function emptyCanvasPoint(page) {
+  return page.locator("#graphViewport").evaluate((viewport) => {
+    const rect = viewport.getBoundingClientRect();
+    for (let y = 90; y < rect.height - 70; y += 45) {
+      for (let x = 40; x < rect.width - 40; x += 55) {
+        const element = document.elementFromPoint(rect.left + x, rect.top + y);
+        if (!element?.closest(".result-node, button, .minimap, .dependency-legend")) return { x: rect.left + x, y: rect.top + y };
+      }
+    }
+    throw new Error("No empty canvas point found");
+  });
+}
+
+test("two mathematicians collaborate, receive MCP-style coaching, and validate a revision", async ({ browser, request }, testInfo) => {
   const context = await browser.newContext();
   const ada = await context.newPage();
   const emmy = await context.newPage();
@@ -17,6 +30,30 @@ test("two mathematicians collaborate, receive MCP-style coaching, and validate a
     await join(ada, "Ada Browser", "1234");
     await join(emmy, "Emmy Browser", "5678");
     await expect(ada.locator("#onlineCount")).toHaveText("2 online");
+    const pointerPoint = await emptyCanvasPoint(ada);
+    await ada.mouse.move(pointerPoint.x, pointerPoint.y);
+    await ada.mouse.down();
+    await expect(ada.locator("#pointerPlacement")).toBeVisible();
+    await ada.screenshot({ path: testInfo.outputPath("work-pointer-dialog.png"), fullPage: true });
+    await expect(emmy.locator(".live-cursor").filter({ hasText: "Ada Browser" })).toHaveCount(0);
+    await ada.mouse.up();
+    await ada.getByRole("button", { name: "Move my pointer here" }).click();
+    await expect(ada.locator(".live-cursor").filter({ hasText: "Ada Browser" })).toBeVisible();
+    await expect(emmy.locator(".live-cursor").filter({ hasText: "Ada Browser" })).toBeVisible();
+
+    const noether = await context.newPage();
+    await join(noether, "Noether Browser", "9012");
+    await expect(noether.locator(".live-cursor").filter({ hasText: "Ada Browser" })).toBeVisible();
+    await noether.close();
+    await expect(ada.locator("#onlineCount")).toHaveText("2 online");
+
+    const dragPoint = await emptyCanvasPoint(ada);
+    await ada.mouse.move(dragPoint.x, dragPoint.y);
+    await ada.mouse.down();
+    await expect(ada.locator("#pointerPlacement")).toBeVisible();
+    await ada.mouse.move(dragPoint.x + 18, dragPoint.y + 12);
+    await expect(ada.locator("#pointerPlacement")).toBeHidden();
+    await ada.mouse.up();
     await ada.locator("#workspaceNameButton").click();
     await ada.getByLabel("Theorem space name").fill("Spectral Collaboration Lab");
     await ada.getByLabel("Theorem space name").press("Enter");
@@ -123,6 +160,7 @@ Is it true that for all $m\geq n+k$\[M(n,k) \neq M(m,k)?\]`);
     await ada.getByRole("menuitem", { name: "Log out" }).click();
     await expect(ada.locator("#joinGate")).toBeVisible();
     expect(await ada.evaluate(() => sessionStorage.getItem("mathhive.token"))).toBeNull();
+    await expect(emmy.locator(".live-cursor").filter({ hasText: "Ada Browser" })).toHaveCount(0);
   } finally {
     await context.close();
   }

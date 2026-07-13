@@ -23,6 +23,7 @@ const state = {
   presence: [],
   locks: new Map(),
   cursors: new Map(),
+  pointerPlacement: null,
   agentStatus: { state: "offline" },
   pendingWorkCount: 0,
   selectedResultId: null,
@@ -201,6 +202,7 @@ async function loadWorkspace(spaceId) {
   Object.assign(state, payload);
   state.locks = new Map();
   state.cursors = new Map();
+  hidePointerPlacement();
   localStorage.setItem("mathhive.inviteSlug", payload.space.inviteSlug);
   history.replaceState(null, "", `/join/${payload.space.inviteSlug}`);
   renderAll();
@@ -452,6 +454,7 @@ function setZoom(next, center = { x: viewport.clientWidth / 2, y: viewport.clien
 
 function beginNodeDrag(event) {
   if (event.button !== 0 || event.target.closest("button")) return;
+  hidePointerPlacement();
   const element = event.currentTarget;
   state.drag = {
     type: "node", element, resultId: element.dataset.nodeId, moved: false,
@@ -462,22 +465,26 @@ function beginNodeDrag(event) {
 }
 
 function beginPan(event) {
-  if (event.button !== 0 || state.activeTool !== "pan" || event.target.closest(".result-node, button, .minimap")) return;
-  state.drag = { type: "pan", moved: false, startX: event.clientX, startY: event.clientY, x: state.pan.x, y: state.pan.y };
+  if (event.button !== 0 || event.target.closest(".result-node, button, .minimap, .pointer-placement")) return;
+  showPointerPlacement(event);
+  state.drag = { type: state.activeTool === "pan" ? "pan" : "canvas", moved: false, startX: event.clientX, startY: event.clientY, x: state.pan.x, y: state.pan.y };
 }
 
 function movePointer(event) {
-  sendCursor(event);
   if (!state.drag) return;
   const dx = event.clientX - state.drag.startX;
   const dy = event.clientY - state.drag.startY;
-  if (Math.abs(dx) + Math.abs(dy) > 4) state.drag.moved = true;
+  if (Math.abs(dx) + Math.abs(dy) > 4 && !state.drag.moved) {
+    state.drag.moved = true;
+    hidePointerPlacement();
+  }
   if (state.drag.type === "pan") {
     state.pan.x = state.drag.x + dx;
     state.pan.y = state.drag.y + dy;
     applyStageTransform();
     return;
   }
+  if (state.drag.type === "canvas") return;
   const result = state.results.find((item) => item.id === state.drag.resultId);
   result.x = Math.max(0, Math.min(900, state.drag.left + dx / state.zoom));
   result.y = Math.max(0, Math.min(850, state.drag.top + dy / state.zoom));
@@ -497,15 +504,39 @@ function endPointer() {
   setTimeout(() => { if (state.drag === completed) state.drag = null; }, 0);
 }
 
-let lastCursorAt = 0;
-function sendCursor(event) {
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN || Date.now() - lastCursorAt < 80) return;
+function graphPoint(event) {
   const rect = viewport.getBoundingClientRect();
   const x = (event.clientX - rect.left - state.pan.x) / state.zoom;
   const y = (event.clientY - rect.top - state.pan.y) / state.zoom;
-  if (x < 0 || y < 0 || x > stage.offsetWidth || y > stage.offsetHeight) return;
-  lastCursorAt = Date.now();
-  sendRealtime({ type: "cursor.move", x, y });
+  if (x < 0 || y < 0 || x > stage.offsetWidth || y > stage.offsetHeight) return null;
+  return { x, y };
+}
+
+function showPointerPlacement(event) {
+  const point = graphPoint(event);
+  if (!point) return hidePointerPlacement();
+  state.pointerPlacement = point;
+  const popover = $("#pointerPlacement");
+  const rect = viewport.getBoundingClientRect();
+  popover.style.left = `${Math.max(8, Math.min(viewport.clientWidth - 196, event.clientX - rect.left + 12))}px`;
+  popover.style.top = `${Math.max(8, Math.min(viewport.clientHeight - 48, event.clientY - rect.top + 12))}px`;
+  popover.hidden = false;
+}
+
+function hidePointerPlacement() {
+  state.pointerPlacement = null;
+  $("#pointerPlacement").hidden = true;
+}
+
+function placeWorkPointer() {
+  if (!state.pointerPlacement) return;
+  if (state.socket?.readyState !== WebSocket.OPEN) return showToast("Live graph is reconnecting. Try again shortly.", "error");
+  const pointer = { profileId: state.profile.id, displayName: state.profile.displayName, color: state.profile.color, ...state.pointerPlacement };
+  state.cursors.set(state.profile.id, pointer);
+  renderCursors();
+  sendRealtime({ type: "cursor.place", x: pointer.x, y: pointer.y });
+  hidePointerPlacement();
+  showToast("Work pointer moved");
 }
 
 function renderCursors() {
@@ -534,12 +565,25 @@ function sendRealtime(message) {
 function handleRealtime(event) {
   if (event.type === "presence.sync") {
     state.presence = event.presence;
+    const activeProfiles = new Set(event.presence.map((person) => person.profileId));
+    for (const profileId of state.cursors.keys()) if (!activeProfiles.has(profileId)) state.cursors.delete(profileId);
     renderPresence();
     renderWorkspace();
+    renderCursors();
     return;
   }
-  if (event.type === "cursor.move") {
+  if (event.type === "cursor.sync") {
+    state.cursors = new Map(event.cursors.map((cursor) => [cursor.profileId, cursor]));
+    renderCursors();
+    return;
+  }
+  if (["cursor.place", "cursor.move"].includes(event.type)) {
     state.cursors.set(event.profileId, event);
+    renderCursors();
+    return;
+  }
+  if (event.type === "cursor.remove") {
+    state.cursors.delete(event.profileId);
     renderCursors();
     return;
   }
@@ -1198,16 +1242,21 @@ function bindEvents() {
   window.addEventListener("pointerup", endPointer);
   viewport.addEventListener("wheel", (event) => {
     event.preventDefault();
+    hidePointerPlacement();
     const rect = viewport.getBoundingClientRect();
     setZoom(state.zoom + (event.deltaY < 0 ? .08 : -.08), { x: event.clientX - rect.left, y: event.clientY - rect.top });
   }, { passive: false });
+  $("#placePointerHere").addEventListener("click", placeWorkPointer);
+  $("#closePointerPlacement").addEventListener("click", hidePointerPlacement);
   $("#zoomIn").addEventListener("click", () => setZoom(state.zoom + .1));
   $("#zoomOut").addEventListener("click", () => setZoom(state.zoom - .1));
   $$('[data-tool]').forEach((button) => button.addEventListener("click", () => {
+    hidePointerPlacement();
     state.activeTool = button.dataset.tool;
     $$('[data-tool]').forEach((item) => item.classList.toggle("active", item === button));
   }));
   window.addEventListener("resize", () => requestAnimationFrame(renderEdges));
+  window.addEventListener("keydown", (event) => { if (event.key === "Escape") hidePointerPlacement(); });
 }
 
 bindEvents();

@@ -147,6 +147,14 @@ export async function createMathHiveServer(options = {}) {
     }));
   }
 
+  function pointerSnapshot(spaceId) {
+    const pointers = new Map();
+    for (const client of sockets.values()) {
+      if (client.spaceId === spaceId && client.pointer) pointers.set(client.profile.id, client.pointer);
+    }
+    return [...pointers.values()];
+  }
+
   function broadcast(spaceId, message, audienceUserIds = null, except = null) {
     for (const [socket, client] of sockets) {
       if (socket === except || client.spaceId !== spaceId) continue;
@@ -175,10 +183,11 @@ export async function createMathHiveServer(options = {}) {
   });
 
   wss.on("connection", (socket, request, context) => {
-    const client = { profile: context.auth.profile, token: context.token, spaceId: context.space.id, activity: "Viewing graph", activeResultId: null };
+    const client = { profile: context.auth.profile, token: context.token, spaceId: context.space.id, activity: "Viewing graph", activeResultId: null, pointer: null };
     sockets.set(socket, client);
     send(socket, { type: "ready", storeRevision: store.data.storeRevision, profileId: client.profile.id });
     send(socket, { type: "editing.sync", locks: lockSnapshot(client.spaceId) });
+    send(socket, { type: "cursor.sync", cursors: pointerSnapshot(client.spaceId) });
     publishPresence(client.spaceId);
 
     socket.on("message", async (raw) => {
@@ -190,8 +199,12 @@ export async function createMathHiveServer(options = {}) {
           client.activeResultId = message.activeResultId || null;
           publishPresence(client.spaceId);
         }
-        if (message.type === "cursor.move") {
-          broadcast(client.spaceId, { type: "cursor.move", profileId: client.profile.id, displayName: client.profile.displayName, color: client.profile.color, x: Number(message.x) || 0, y: Number(message.y) || 0 }, null, socket);
+        if (["cursor.place", "cursor.move"].includes(message.type)) {
+          const x = Number(message.x);
+          const y = Number(message.y);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+          client.pointer = { type: "cursor.place", profileId: client.profile.id, displayName: client.profile.displayName, color: client.profile.color, x: Math.max(0, Math.min(2000, x)), y: Math.max(0, Math.min(2000, y)) };
+          broadcast(client.spaceId, client.pointer);
         }
         if (message.type === "editing.acquire") {
           const current = locks.get(message.resultId);
@@ -225,6 +238,8 @@ export async function createMathHiveServer(options = {}) {
         locks.delete(resultId);
         broadcast(client.spaceId, { type: "editing.unlock", resultId });
       }
+      const replacement = [...sockets.values()].find((item) => item.spaceId === client.spaceId && item.profile.id === client.profile.id && item.pointer)?.pointer;
+      broadcast(client.spaceId, replacement || { type: "cursor.remove", profileId: client.profile.id });
       publishPresence(client.spaceId);
     });
   });
