@@ -1,0 +1,38 @@
+import { test, expect } from "@playwright/test";
+
+async function join(page, name, pin) {
+  await page.goto("/join/spectral-gap");
+  await page.getByLabel("Display name").fill(name);
+  await page.getByLabel("PIN or small password").fill(pin);
+  await page.getByRole("button", { name: "Join workspace" }).click();
+  await expect(page.locator("#joinGate")).toBeHidden();
+}
+
+test("desktop graph remains framed and usable", async ({ browser }, testInfo) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  await join(page, "Desktop Audit", "9090");
+  await expect(page.locator(".result-node").first()).toBeVisible();
+  expect(await page.locator(".app-shell").evaluate((element) => getComputedStyle(element).display)).toBe("grid");
+  await expect(page.locator("#rightPanel")).toBeVisible();
+  const overflow = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, viewport: innerWidth }));
+  expect(overflow.width).toBeLessThanOrEqual(overflow.viewport);
+  await page.screenshot({ path: testInfo.outputPath("mathhive-desktop.png"), fullPage: true });
+  await context.close();
+});
+
+test("mobile graph and authoring panel fit without horizontal overflow", async ({ browser }, testInfo) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
+  const page = await context.newPage();
+  await join(page, "Mobile Audit", "8080");
+  await expect(page.locator("#graphViewport")).toBeVisible();
+  await page.getByRole("button", { name: "New result" }).click();
+  await expect(page.locator("#resultEditor")).toBeVisible();
+  const bounds = await page.locator("#resultEditor").boundingBox();
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.width).toBeLessThanOrEqual(390);
+  const overflow = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, viewport: innerWidth }));
+  expect(overflow.width).toBeLessThanOrEqual(overflow.viewport);
+  await page.screenshot({ path: testInfo.outputPath("mathhive-mobile.png"), fullPage: true });
+  await context.close();
+});

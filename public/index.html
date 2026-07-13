@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="MathHive collaborative theorem graph mockup" />
+    <title>MathHive - Collaborative Proof Network</title>
+    <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <button class="brand" aria-label="MathHive home">
+            <span class="brand-mark" aria-hidden="true"><span>∑</span></span>
+            <span>MathHive</span>
+          </button>
+          <button class="icon-button sidebar-toggle" id="sidebarToggle" title="Toggle sidebar" aria-label="Toggle sidebar">
+            <i data-lucide="panel-left-close"></i>
+          </button>
+        </div>
+
+        <div class="workspace-heading">
+          <button class="workspace-menu" id="workspaceMenu">
+            <strong id="workspaceTitle">Spectral Gap Program</strong>
+            <i data-lucide="chevron-down"></i>
+          </button>
+          <button class="privacy-pill" id="copyInvite"><i data-lucide="link"></i> Copy invite</button>
+          <div class="workspace-popover" id="workspacePopover" role="menu"></div>
+        </div>
+
+        <div class="view-switcher live-mode"><i data-lucide="radio"></i><span>Live graph</span></div>
+
+        <div class="presence-block">
+          <div class="avatar-stack" aria-label="Active collaborators">
+            <span class="avatar avatar-mira">MP</span>
+            <span class="avatar avatar-euler">LE</span>
+            <span class="avatar avatar-rao">AR</span>
+            <span class="avatar avatar-nguyen">SN</span>
+            <span class="avatar avatar-count">+4</span>
+          </div>
+          <span class="online-count"><span class="online-dot"></span><span id="onlineCount">18 online</span></span>
+          <button class="icon-button" title="Search" aria-label="Search"><i data-lucide="search"></i></button>
+          <button class="icon-button notification-trigger" id="notificationTrigger" title="Notifications" aria-label="Notifications">
+            <i data-lucide="bell"></i><span class="notification-badge" id="notificationBadge">7</span>
+          </button>
+          <button class="icon-button" id="profileButton" title="Your profile" aria-label="Your profile"><i data-lucide="user-round"></i></button>
+        </div>
+      </header>
+
+      <aside class="left-sidebar" id="leftSidebar">
+        <section class="sidebar-section spaces-section">
+          <div class="section-heading">
+            <h2>Theorem Spaces</h2>
+            <button class="small-icon-button" id="copySpaceUrl" title="Copy workspace URL" aria-label="Copy workspace URL"><i data-lucide="link"></i></button>
+          </div>
+          <div class="spaces-list" id="spacesList"></div>
+        </section>
+
+        <section class="sidebar-section collaborators-section">
+          <h2>Collaborators</h2>
+          <label class="search-field">
+            <i data-lucide="search"></i>
+            <input id="collaboratorSearch" type="search" placeholder="Search collaborators..." />
+          </label>
+          <div class="collaborator-list" id="collaboratorList"></div>
+        </section>
+
+        <section class="legend-panel">
+          <h2>Legend</h2>
+          <div class="legend-item"><span class="status-symbol validated"><i data-lucide="check"></i></span><span>Validated</span></div>
+          <div class="legend-item"><span class="status-symbol pending"></span><span>Pending Review</span></div>
+          <div class="legend-item"><span class="status-symbol imported"><i data-lucide="download"></i></span><span>Imported</span></div>
+          <div class="legend-item"><span class="status-symbol draft"></span><span>Draft</span></div>
+        </section>
+      </aside>
+
+      <main class="workspace-main">
+        <div class="canvas-toolbar">
+          <div class="toolbar-group">
+            <button class="toolbar-button primary-toolbar" id="newResult" aria-label="New result"><i data-lucide="plus"></i><span>New result</span></button>
+            <button class="toolbar-button" id="fitView" aria-label="Fit to view"><i data-lucide="scan"></i><span>Fit to view</span><i data-lucide="chevron-down" class="chevron"></i></button>
+            <button class="toolbar-button" id="layoutButton" aria-label="Arrange graph"><i data-lucide="network"></i><span>Arrange</span></button>
+          </div>
+          <div class="toolbar-group">
+            <button class="toolbar-button" id="filterButton" aria-label="Filter results"><i data-lucide="list-filter"></i><span>Filters</span><span class="active-filter-count" id="activeFilterCount"></span></button>
+            <button class="toolbar-button icon-only" id="displaySettings" title="Graph display settings" aria-label="Graph display settings"><i data-lucide="sliders-horizontal"></i></button>
+          </div>
+          <div class="filter-popover" id="filterPopover">
+            <div class="popover-title"><strong>Show result types</strong><button id="clearFilters">Reset</button></div>
+            <label><input type="checkbox" value="validated" checked /> <span class="filter-dot validated-dot"></span> Validated</label>
+            <label><input type="checkbox" value="pending" checked /> <span class="filter-dot pending-dot"></span> Draft / pending</label>
+            <label><input type="checkbox" value="imported" checked /> <span class="filter-dot imported-dot"></span> Imported</label>
+          </div>
+        </div>
+
+        <div class="graph-viewport" id="graphViewport">
+          <div class="graph-stage" id="graphStage">
+            <svg class="edges-layer" id="edgesLayer" aria-hidden="true">
+              <defs>
+                <marker id="arrow-solid" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#334155" /></marker>
+                <marker id="arrow-dashed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" /></marker>
+                <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6" /></marker>
+              </defs>
+            </svg>
+            <div class="nodes-layer" id="nodesLayer"></div>
+            <div class="live-cursors" id="liveCursors"></div>
+
+            <aside class="dependency-legend">
+              <strong>Dependencies</strong>
+              <span><i class="line-sample solid"></i>Depends on</span>
+              <span><i class="line-sample dashed"></i>Supports</span>
+              <span><i class="line-sample dotted"></i>Conflicts with</span>
+            </aside>
+          </div>
+
+          <div class="canvas-actions" aria-label="Canvas controls">
+            <button class="active" data-tool="pan" title="Pan" aria-label="Pan"><i data-lucide="hand"></i></button>
+            <button data-tool="select" title="Select" aria-label="Select"><i data-lucide="mouse-pointer-2"></i></button>
+            <span class="action-divider"></span>
+            <button id="zoomOut" title="Zoom out" aria-label="Zoom out"><i data-lucide="minus"></i></button>
+            <span class="zoom-value" id="zoomValue">100%</span>
+            <button id="zoomIn" title="Zoom in" aria-label="Zoom in"><i data-lucide="plus"></i></button>
+          </div>
+
+          <div class="minimap" id="minimap" aria-label="Graph minimap">
+            <div class="minimap-viewport"></div>
+          </div>
+        </div>
+      </main>
+
+      <aside class="right-panel" id="rightPanel">
+        <section class="assistant-section">
+          <div class="panel-heading">
+            <div><span class="spark-icon"><i data-lucide="sparkles"></i></span><h2>AI Integration Assistant</h2></div>
+            <div>
+              <button class="small-icon-button" title="Assistant settings" aria-label="Assistant settings"><i data-lucide="settings"></i></button>
+              <button class="small-icon-button" id="closeAssistant" title="Close assistant" aria-label="Close assistant"><i data-lucide="x"></i></button>
+            </div>
+          </div>
+          <div class="assistant-summary"><span id="suggestionCount">No suggestions</span><span class="agent-status" id="agentStatus"><i></i> Agent offline</span></div>
+          <div class="suggestions-list" id="suggestionsList"></div>
+        </section>
+
+        <section class="notifications-section" id="notificationsSection">
+          <div class="notifications-heading">
+            <h2>Notifications</h2>
+            <button id="markAllRead">Mark all read</button>
+          </div>
+          <div class="notifications-list" id="notificationsList"></div>
+          <button class="view-activity" id="viewActivity"><span>View all activity</span><i data-lucide="chevron-right"></i></button>
+        </section>
+      </aside>
+
+      <button class="assistant-fab" id="assistantFab" title="Open AI assistant" aria-label="Open AI assistant"><i data-lucide="sparkles"></i></button>
+      <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+    </div>
+
+    <div class="join-gate" id="joinGate">
+      <form class="join-card" id="joinForm">
+        <div class="join-brand"><span class="brand-mark" aria-hidden="true"><span>∑</span></span><strong>MathHive</strong></div>
+        <h1>Join <span id="joinSpaceName">this theorem space</span></h1>
+        <p>Use a name your collaborators will recognize and a short PIN you can remember.</p>
+        <label>Display name<input id="joinName" name="displayName" minlength="2" maxlength="40" autocomplete="name" required placeholder="Dr. Ada Lovelace" /></label>
+        <label>PIN or small password<input id="joinPin" name="pin" type="password" minlength="4" maxlength="12" autocomplete="current-password" required placeholder="4-12 characters" /></label>
+        <div class="join-error" id="joinError" role="alert"></div>
+        <button class="primary-button" type="submit"><i data-lucide="log-in"></i> Join workspace</button>
+      </form>
+    </div>
+
+    <div class="panel-scrim" id="editorScrim" hidden></div>
+    <aside class="result-editor" id="resultEditor" hidden aria-label="Result editor">
+      <header class="editor-header">
+        <div><span class="eyebrow" id="editorStatus">Draft</span><h2 id="editorHeading">New result</h2></div>
+        <div class="editor-header-actions">
+          <button class="star-button" id="editorStar" title="Star result" aria-label="Star result"><i data-lucide="star"></i></button>
+          <button class="small-icon-button" id="closeEditor" title="Close editor" aria-label="Close editor"><i data-lucide="x"></i></button>
+        </div>
+      </header>
+      <div class="lock-banner" id="lockBanner" hidden></div>
+      <nav class="editor-tabs" aria-label="Result details">
+        <button class="active" data-editor-tab="write">Write</button>
+        <button data-editor-tab="history">History <span id="revisionCount">0</span></button>
+        <button data-editor-tab="comments">Comments <span id="commentCount">0</span></button>
+      </nav>
+
+      <section class="editor-tab-panel active" data-editor-panel="write">
+        <form id="resultForm" class="result-form">
+          <label>Title<input id="resultTitle" maxlength="120" required placeholder="A precise name for this result" /></label>
+          <div class="math-field-grid">
+            <label>Statement (LaTeX)<textarea id="resultStatement" rows="4" required placeholder="\\lambda_1(G) \\ge c \\log |G|"></textarea></label>
+            <div class="math-preview" id="statementPreview" aria-label="Rendered statement"></div>
+          </div>
+          <label>Hypotheses, one LaTeX expression per line<textarea id="resultHypotheses" rows="3" placeholder="G \\text{ is finite and connected}"></textarea></label>
+          <div class="math-field-grid proof-grid">
+            <label>Proof (Markdown + LaTeX)<textarea id="resultProof" rows="13" required placeholder="State each step. Use $...$ for inline math and $$...$$ for display math."></textarea></label>
+            <div class="proof-preview prose" id="proofPreview" aria-label="Rendered proof"></div>
+          </div>
+          <div class="two-column-fields">
+            <label>Tags<input id="resultTags" placeholder="spectral-gap, expander" /></label>
+            <label>Citation<input id="resultCitation" placeholder="Optional source or paper" /></label>
+          </div>
+          <div class="two-column-fields">
+            <label>Related result<select id="resultDependency"><option value="">Choose a result</option></select></label>
+            <label>Relation<select id="resultRelation"><option value="depends_on">Depends on</option><option value="supports">Supports</option><option value="conflicts_with">Conflicts with</option></select></label>
+          </div>
+        </form>
+
+        <section class="feedback-panel">
+          <div class="feedback-heading"><div><i data-lucide="sparkles"></i><strong>Realtime proof check</strong></div><button id="reviewDraft" type="button">Ask Codex now</button></div>
+          <div id="localChecks" class="check-list"></div>
+          <div id="codexFeedback" class="codex-feedback"></div>
+        </section>
+      </section>
+
+      <section class="editor-tab-panel" data-editor-panel="history"><div class="revision-list" id="revisionList"></div></section>
+      <section class="editor-tab-panel" data-editor-panel="comments">
+        <div class="comment-list" id="commentList"></div>
+        <form class="comment-form" id="commentForm"><textarea id="commentBody" rows="3" placeholder="Add a focused mathematical comment"></textarea><button class="secondary-button" type="submit"><i data-lucide="send"></i> Comment</button></form>
+      </section>
+
+      <footer class="editor-footer">
+        <span id="saveStatus">Saved</span>
+        <button class="secondary-button" id="addRelationship" type="button"><i data-lucide="git-branch-plus"></i> Add relation</button>
+        <button class="primary-button" id="submitResult" type="button"><i data-lucide="send"></i> Submit for AI validation</button>
+      </footer>
+    </aside>
+
+    <div class="activity-modal" id="activityModal" hidden>
+      <section><header><h2>Workspace activity</h2><button class="small-icon-button" id="closeActivity" title="Close activity" aria-label="Close activity"><i data-lucide="x"></i></button></header><div id="activityList" class="activity-list"></div></section>
+    </div>
+
+    <script src="/vendor/lucide/lucide.min.js"></script>
+    <script src="/vendor/katex/katex.min.js"></script>
+    <script src="/vendor/markdown-it/markdown-it.min.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

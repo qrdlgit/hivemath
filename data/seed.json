@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "storeRevision": 0,
+  "profiles": [],
+  "sessions": [],
+  "spaces": [
+    { "id": "space-spectral", "inviteSlug": "spectral-gap", "name": "Spectral Gap Program", "description": "Collaborative work on spectral gaps and expanders.", "createdAt": "2026-07-01T09:00:00.000Z" },
+    { "id": "space-representations", "inviteSlug": "group-representations", "name": "Group Representations", "description": "Representation theoretic techniques and lemmas.", "createdAt": "2026-07-01T09:00:00.000Z" },
+    { "id": "space-geometry", "inviteSlug": "algebraic-geometry", "name": "Algebraic Geometry", "description": "Imported geometric results and topology links.", "createdAt": "2026-07-01T09:00:00.000Z" },
+    { "id": "space-number", "inviteSlug": "analytic-number-theory", "name": "Analytic Number Theory", "description": "Analytic estimates and number theoretic branches.", "createdAt": "2026-07-01T09:00:00.000Z" }
+  ],
+  "results": [
+    {
+      "id": "result-main", "spaceId": "space-spectral", "title": "Main Theorem",
+      "statementLatex": "\\lambda_1(G) \\ge c \\cdot \\log |G|",
+      "hypothesesLatex": ["G \\text{ is a finite connected Cayley graph}"],
+      "proofMarkdown": "Combine the validated Poincare estimate with Lemma A and the expansion bound. The dependency chain supplies the claimed logarithmic lower bound.",
+      "status": "validated", "version": 2, "draftRevision": 2, "submittedRevisionId": "revision-main-2",
+      "lastCodexReviewAt": "2026-07-10T10:00:00.000Z", "lastCodexReviewContentLength": 196,
+      "citation": "Patel et al. (2024)", "bibtex": "@article{patel2024spectral,title={Spectral Gaps in Finite Cayley Graphs},author={Patel, Mira and others},year={2024}}",
+      "sourceType": "original", "sourceSpaceId": null, "sourceResultId": null, "tags": ["spectral-gap", "cayley-graph"],
+      "dependencyIds": ["result-lemma", "result-bound"], "x": 358, "y": 72, "starredBy": [], "createdBy": "seed", "updatedBy": "seed",
+      "createdAt": "2026-07-03T10:00:00.000Z", "updatedAt": "2026-07-10T10:00:00.000Z"
+    },
+    {
+      "id": "result-lemma", "spaceId": "space-spectral", "title": "Lemma A",
+      "statementLatex": "\\forall f \\in L^2(G), \\; \\|f\\|_2^2 \\le C \\|\\nabla f\\|_2^2",
+      "hypothesesLatex": ["f \\perp \\mathbf{1}"],
+      "proofMarkdown": "Decompose $f$ into irreducible components and apply the representation estimate on every nontrivial summand.",
+      "status": "validated", "version": 3, "draftRevision": 3, "submittedRevisionId": "revision-lemma-3",
+      "lastCodexReviewAt": "2026-07-09T12:00:00.000Z", "lastCodexReviewContentLength": 140,
+      "citation": "Euler (2024)", "bibtex": "", "sourceType": "original", "sourceSpaceId": null, "sourceResultId": null,
+      "tags": ["poincare", "representation"], "dependencyIds": ["result-poincare"], "x": 74, "y": 266, "starredBy": [],
+      "createdBy": "seed", "updatedBy": "seed", "createdAt": "2026-07-02T10:00:00.000Z", "updatedAt": "2026-07-09T12:00:00.000Z"
+    },
+    {
+      "id": "result-bound", "spaceId": "space-spectral", "title": "Bound 3.2",
+      "statementLatex": "\\lambda_1(G) \\ge \\frac{1}{2|S|} \\Phi(G)^2",
+      "hypothesesLatex": ["G = \\operatorname{Cay}(\\Gamma,S)"],
+      "proofMarkdown": "Use the discrete Cheeger inequality after normalizing by the generating set size. A detailed treatment of the equality case remains to be added.",
+      "status": "pending_review", "version": 1, "draftRevision": 3, "submittedRevisionId": "revision-bound-1",
+      "lastCodexReviewAt": null, "lastCodexReviewContentLength": 0, "citation": "Nguyen (2024)", "bibtex": "",
+      "sourceType": "original", "sourceSpaceId": null, "sourceResultId": null, "tags": ["cheeger", "expansion"],
+      "dependencyIds": [], "x": 358, "y": 266, "starredBy": [], "createdBy": "seed", "updatedBy": "seed",
+      "createdAt": "2026-07-07T11:00:00.000Z", "updatedAt": "2026-07-11T11:00:00.000Z"
+    },
+    {
+      "id": "result-mix", "spaceId": "space-spectral", "title": "expander_mix.lem",
+      "statementLatex": "t_{mix} \\le O(\\log |G| / \\gamma)", "hypothesesLatex": ["\\gamma > 0"],
+      "proofMarkdown": "Imported mixing-time estimate from the Algebraic Geometry workspace.", "status": "imported", "version": 1,
+      "draftRevision": 1, "submittedRevisionId": "revision-mix-1", "lastCodexReviewAt": null, "lastCodexReviewContentLength": 0,
+      "citation": "Algebraic Geometry Group", "bibtex": "", "sourceType": "imported", "sourceSpaceId": "space-geometry",
+      "sourceResultId": "geometry-mix-source", "tags": ["mixing", "expander"], "dependencyIds": [], "x": 614, "y": 266,
+      "starredBy": [], "createdBy": "seed", "updatedBy": "seed", "createdAt": "2026-07-08T09:00:00.000Z", "updatedAt": "2026-07-08T09:00:00.000Z"
+    },
+    {
+      "id": "result-poincare", "spaceId": "space-spectral", "title": "Poincare Inequality",
+      "statementLatex": "\\|f-f_G\\|_2^2 \\le C_P \\|\\nabla f\\|_2^2", "hypothesesLatex": ["f \\in H^1(G)"],
+      "proofMarkdown": "Apply the variational characterization of the first nonzero eigenvalue.", "status": "validated", "version": 2,
+      "draftRevision": 2, "submittedRevisionId": "revision-poincare-2", "lastCodexReviewAt": "2026-07-08T11:00:00.000Z",
+      "lastCodexReviewContentLength": 89, "citation": "Chen (2024)", "bibtex": "", "sourceType": "original", "sourceSpaceId": null,
+      "sourceResultId": null, "tags": ["poincare", "analysis"], "dependencyIds": [], "x": 98, "y": 504, "starredBy": [],
+      "createdBy": "seed", "updatedBy": "seed", "createdAt": "2026-07-03T09:00:00.000Z", "updatedAt": "2026-07-08T11:00:00.000Z"
+    },
+    {
+      "id": "result-conjecture", "spaceId": "space-spectral", "title": "Conjecture Link",
+      "statementLatex": "\\lambda_1(G) \\asymp h(G)^2", "hypothesesLatex": ["G \\text{ belongs to the proposed family}"],
+      "proofMarkdown": "The previous dependency conflict was resolved by narrowing the graph family.", "status": "conflict_resolved", "version": 1,
+      "draftRevision": 1, "submittedRevisionId": "revision-conjecture-1", "lastCodexReviewAt": null, "lastCodexReviewContentLength": 0,
+      "citation": "Rao (2024)", "bibtex": "", "sourceType": "original", "sourceSpaceId": null, "sourceResultId": null,
+      "tags": ["conjecture", "cheeger"], "dependencyIds": ["result-bound"], "x": 390, "y": 504, "starredBy": [],
+      "createdBy": "seed", "updatedBy": "seed", "createdAt": "2026-07-04T09:00:00.000Z", "updatedAt": "2026-07-10T09:00:00.000Z"
+    },
+    {
+      "id": "result-topology", "spaceId": "space-spectral", "title": "Topology Result",
+      "statementLatex": "\\beta_1(X) \\le b \\cdot \\chi(X)", "hypothesesLatex": ["X \\text{ is connected}"],
+      "proofMarkdown": "Count one-dimensional cycles in the chosen cellular decomposition.", "status": "validated", "version": 1,
+      "draftRevision": 1, "submittedRevisionId": "revision-topology-1", "lastCodexReviewAt": "2026-07-09T08:00:00.000Z",
+      "lastCodexReviewContentLength": 76, "citation": "Patel and Chen (2024)", "bibtex": "", "sourceType": "original", "sourceSpaceId": null,
+      "sourceResultId": null, "tags": ["topology", "homology"], "dependencyIds": ["result-mix"], "x": 722, "y": 504,
+      "starredBy": [], "createdBy": "seed", "updatedBy": "seed", "createdAt": "2026-07-05T09:00:00.000Z", "updatedAt": "2026-07-09T08:00:00.000Z"
+    },
+    {
+      "id": "result-number", "spaceId": "space-spectral", "title": "Number Theory Branch",
+      "statementLatex": "\\sum_{p \\le x} \\frac{1}{p} = \\log \\log x + M + o(1)", "hypothesesLatex": ["x \\to \\infty"],
+      "proofMarkdown": "Imported analytic estimate.", "status": "imported", "version": 1, "draftRevision": 1,
+      "submittedRevisionId": "revision-number-1", "lastCodexReviewAt": null, "lastCodexReviewContentLength": 0,
+      "citation": "ANT Group", "bibtex": "", "sourceType": "imported", "sourceSpaceId": "space-number", "sourceResultId": "ant-prime-reciprocals",
+      "tags": ["primes", "asymptotics"], "dependencyIds": [], "x": 94, "y": 748, "starredBy": [], "createdBy": "seed",
+      "updatedBy": "seed", "createdAt": "2026-07-06T09:00:00.000Z", "updatedAt": "2026-07-06T09:00:00.000Z"
+    },
+    {
+      "id": "result-review", "spaceId": "space-spectral", "title": "Review Node",
+      "statementLatex": "\\text{Peer review in progress}", "hypothesesLatex": [], "proofMarkdown": "Waiting for Codex review of the supporting argument.",
+      "status": "pending_review", "version": 0, "draftRevision": 1, "submittedRevisionId": "revision-review-1",
+      "lastCodexReviewAt": null, "lastCodexReviewContentLength": 0, "citation": "", "bibtex": "", "sourceType": "original",
+      "sourceSpaceId": null, "sourceResultId": null, "tags": ["review"], "dependencyIds": ["result-poincare"], "x": 360, "y": 748,
+      "starredBy": [], "createdBy": "seed", "updatedBy": "seed", "createdAt": "2026-07-11T09:00:00.000Z", "updatedAt": "2026-07-11T09:00:00.000Z"
+    },
+    {
+      "id": "result-proof", "spaceId": "space-spectral", "title": "Verified Proof",
+      "statementLatex": "\\text{Formal proof encoded in Lean 4}", "hypothesesLatex": [], "proofMarkdown": "The proof artifact was checked separately in Lean 4.",
+      "status": "validated", "version": 1, "draftRevision": 1, "submittedRevisionId": "revision-proof-1",
+      "lastCodexReviewAt": "2026-07-10T09:00:00.000Z", "lastCodexReviewContentLength": 52, "citation": "Patel (2024)", "bibtex": "",
+      "sourceType": "original", "sourceSpaceId": null, "sourceResultId": null, "tags": ["lean", "formal"], "dependencyIds": ["result-conjecture"],
+      "x": 604, "y": 748, "starredBy": [], "createdBy": "seed", "updatedBy": "seed", "createdAt": "2026-07-10T09:00:00.000Z",
+      "updatedAt": "2026-07-10T09:00:00.000Z"
+    },
+    {
+      "id": "geometry-mix-source", "spaceId": "space-geometry", "title": "Geometric Mixing Estimate",
+      "statementLatex": "t_{mix} \\le \\frac{\\log |G|}{\\gamma}", "hypothesesLatex": ["\\gamma > 0"],
+      "proofMarkdown": "Use the spectral decomposition of the transition operator and bound every nonconstant mode by $1-\\gamma$.",
+      "status": "validated", "version": 1, "draftRevision": 1, "submittedRevisionId": "revision-geometry-mix-1",
+      "lastCodexReviewAt": "2026-07-08T08:00:00.000Z", "lastCodexReviewContentLength": 130, "citation": "Geometry Group (2024)", "bibtex": "",
+      "sourceType": "original", "sourceSpaceId": null, "sourceResultId": null, "tags": ["mixing", "spectral-gap"], "dependencyIds": [],
+      "x": 160, "y": 140, "starredBy": [], "createdBy": "seed", "updatedBy": "seed", "createdAt": "2026-07-08T08:00:00.000Z",
+      "updatedAt": "2026-07-08T08:00:00.000Z"
+    },
+    {
+      "id": "ant-prime-reciprocals", "spaceId": "space-number", "title": "Prime Reciprocal Estimate",
+      "statementLatex": "\\sum_{p \\le x} p^{-1} = \\log \\log x + M + o(1)", "hypothesesLatex": ["x \\to \\infty"],
+      "proofMarkdown": "Apply partial summation to the prime number theorem.", "status": "validated", "version": 1, "draftRevision": 1,
+      "submittedRevisionId": "revision-ant-1", "lastCodexReviewAt": "2026-07-06T08:00:00.000Z", "lastCodexReviewContentLength": 59,
+      "citation": "ANT Group (2024)", "bibtex": "", "sourceType": "original", "sourceSpaceId": null, "sourceResultId": null,
+      "tags": ["primes", "asymptotics"], "dependencyIds": [], "x": 160, "y": 140, "starredBy": [], "createdBy": "seed", "updatedBy": "seed",
+      "createdAt": "2026-07-06T08:00:00.000Z", "updatedAt": "2026-07-06T08:00:00.000Z"
+    }
+  ],
+  "revisions": [],
+  "draftFeedback": [],
+  "edges": [
+    { "id": "edge-lemma-main", "spaceId": "space-spectral", "sourceResultId": "result-lemma", "targetResultId": "result-main", "relation": "depends_on", "createdBy": "seed", "createdAt": "2026-07-03T10:00:00.000Z" },
+    { "id": "edge-bound-main", "spaceId": "space-spectral", "sourceResultId": "result-bound", "targetResultId": "result-main", "relation": "depends_on", "createdBy": "seed", "createdAt": "2026-07-07T11:00:00.000Z" },
+    { "id": "edge-mix-main", "spaceId": "space-spectral", "sourceResultId": "result-mix", "targetResultId": "result-main", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-08T09:00:00.000Z" },
+    { "id": "edge-poincare-lemma", "spaceId": "space-spectral", "sourceResultId": "result-poincare", "targetResultId": "result-lemma", "relation": "depends_on", "createdBy": "seed", "createdAt": "2026-07-03T10:00:00.000Z" },
+    { "id": "edge-conjecture-bound", "spaceId": "space-spectral", "sourceResultId": "result-conjecture", "targetResultId": "result-bound", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-07T11:00:00.000Z" },
+    { "id": "edge-topology-mix", "spaceId": "space-spectral", "sourceResultId": "result-topology", "targetResultId": "result-mix", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-09T08:00:00.000Z" },
+    { "id": "edge-number-poincare", "spaceId": "space-spectral", "sourceResultId": "result-number", "targetResultId": "result-poincare", "relation": "contributes_to", "createdBy": "seed", "createdAt": "2026-07-08T08:00:00.000Z" },
+    { "id": "edge-review-poincare", "spaceId": "space-spectral", "sourceResultId": "result-review", "targetResultId": "result-poincare", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-11T09:00:00.000Z" },
+    { "id": "edge-proof-conjecture", "spaceId": "space-spectral", "sourceResultId": "result-proof", "targetResultId": "result-conjecture", "relation": "supports", "createdBy": "seed", "createdAt": "2026-07-10T09:00:00.000Z" },
+    { "id": "edge-proof-topology", "spaceId": "space-spectral", "sourceResultId": "result-proof", "targetResultId": "result-topology", "relation": "depends_on", "createdBy": "seed", "createdAt": "2026-07-10T09:00:00.000Z" }
+  ],
+  "reviews": [],
+  "comments": [],
+  "suggestions": [],
+  "notifications": [],
+  "activity": [
+    { "id": "activity-seed", "spaceId": "space-spectral", "actorType": "system", "actorId": "seed", "action": "workspace.seeded", "entityType": "space", "entityId": "space-spectral", "summary": "Spectral Gap Program initialized with shared results.", "createdAt": "2026-07-11T08:00:00.000Z" }
+  ],
+  "workQueue": [],
+  "agentStatus": { "state": "offline", "currentWorkType": null, "updatedAt": "2026-07-11T08:00:00.000Z" }
+}
