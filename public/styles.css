@@ -571,7 +571,10 @@ svg { display: block; }
   display: flex;
   width: 188px;
   min-height: 135px;
+  max-width: 564px;
+  max-height: 405px;
   flex-direction: column;
+  overflow: hidden;
   background: rgb(255 255 255 / 98%);
   border: 1.5px solid var(--node-color);
   border-radius: 7px;
@@ -833,7 +836,6 @@ svg { display: block; }
   .online-count { display: none; }
   .presence-block { padding-right: 8px; }
   .dependency-legend { display: none; }
-  .result-node { width: 180px; }
 }
 
 @media (max-width: 980px) {

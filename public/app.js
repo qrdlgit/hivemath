@@ -45,6 +45,8 @@ const cursorLayer = $("#liveCursors");
 const editor = $("#resultEditor");
 const editorScrim = $("#editorScrim");
 const markdown = window.markdownit({ html: false, breaks: true, linkify: true });
+const baseNodeWidth = 188;
+const maxNodeWidth = baseNodeWidth * 3;
 
 function inviteSlug() {
   const match = location.pathname.match(/^\/join\/([^/]+)/);
@@ -287,6 +289,8 @@ function nodeStatusIcon(type) {
 
 function renderNodes() {
   if (!nodeLayer) return;
+  stage.style.width = "960px";
+  stage.style.height = "920px";
   nodeLayer.innerHTML = state.results.map((result) => {
     const type = resultType(result);
     const filterType = ["draft", "pending"].includes(type) ? "pending" : type;
@@ -305,6 +309,7 @@ function renderNodes() {
   }).join("");
 
   for (const result of state.results) renderStatement($(`[data-result-math="${result.id}"]`), result.statementLatex, false);
+  sizeNodesToContent();
   $$(".result-node").forEach((element) => {
     element.addEventListener("pointerdown", beginNodeDrag);
     element.addEventListener("click", () => {
@@ -325,6 +330,27 @@ function renderNodes() {
   }));
   refreshIcons(nodeLayer);
   requestAnimationFrame(renderEdges);
+}
+
+function sizeNodesToContent() {
+  let stageWidth = 960;
+  let stageHeight = 920;
+  for (const result of state.results) {
+    const element = $(`[data-node-id="${result.id}"]`);
+    if (!element) continue;
+    const title = $(".node-heading strong", element);
+    const formula = $(".formula", element);
+    const mixedEstimate = formula.classList.contains("mixed-content")
+      ? baseNodeWidth + Math.max(0, result.statementLatex.length - 40) * 2.2
+      : 0;
+    const desiredWidth = Math.ceil(Math.max(baseNodeWidth, title.scrollWidth + 76, formula.scrollWidth + 22, mixedEstimate));
+    const width = Math.min(maxNodeWidth, desiredWidth);
+    element.style.width = `${width}px`;
+    stageWidth = Math.max(stageWidth, Number(result.x) + width + 40);
+    stageHeight = Math.max(stageHeight, Number(result.y) + Math.min(405, element.scrollHeight) + 40);
+  }
+  stage.style.width = `${stageWidth}px`;
+  stage.style.height = `${stageHeight}px`;
 }
 
 function edgeClass(relation) {
@@ -368,8 +394,8 @@ function applyStageTransform() {
 function fitStage() {
   if (!viewport.clientWidth || !viewport.clientHeight) return;
   const margin = 36;
-  state.zoom = Math.max(.48, Math.min(1, (viewport.clientWidth - margin * 2) / 960, (viewport.clientHeight - margin * 2) / 920));
-  state.pan.x = Math.max(margin, (viewport.clientWidth - 960 * state.zoom) / 2);
+  state.zoom = Math.max(.38, Math.min(1, (viewport.clientWidth - margin * 2) / stage.offsetWidth, (viewport.clientHeight - margin * 2) / stage.offsetHeight));
+  state.pan.x = Math.max(margin, (viewport.clientWidth - stage.offsetWidth * state.zoom) / 2);
   state.pan.y = 20;
   applyStageTransform();
 }
@@ -435,7 +461,7 @@ function sendCursor(event) {
   const rect = viewport.getBoundingClientRect();
   const x = (event.clientX - rect.left - state.pan.x) / state.zoom;
   const y = (event.clientY - rect.top - state.pan.y) / state.zoom;
-  if (x < 0 || y < 0 || x > 960 || y > 920) return;
+  if (x < 0 || y < 0 || x > stage.offsetWidth || y > stage.offsetHeight) return;
   lastCursorAt = Date.now();
   sendRealtime({ type: "cursor.move", x, y });
 }

@@ -32,6 +32,12 @@ test("two mathematicians collaborate, receive MCP-style coaching, and validate a
     await ada.locator("#resultStatement").fill(String.raw`Let $M(n,k)=[n+1,\ldots,n+k]$ be the least common multiple of $\{n+1,\ldots,n+k\}$. Is it true that for all $m\geq n+k$ \[M(n,k) \neq M(m,k)?\]`);
     await expect(ada.locator("#statementPreview .katex")).toHaveCount(4);
     await expect(ada.locator("#statementPreview")).not.toContainText(String.raw`\[`);
+    await expect(ada.locator("#saveStatus")).toContainText("draft");
+    const expandedNode = ada.locator(".result-node").filter({ hasText: "Browser equality lemma" });
+    await expect(expandedNode).toBeVisible();
+    const expandedBounds = await expandedNode.boundingBox();
+    expect(expandedBounds.width).toBeGreaterThan(188);
+    expect(expandedBounds.width).toBeLessThanOrEqual(564);
     await ada.locator("#resultStatement").fill("x = x");
     await ada.locator("#resultHypotheses").fill("x \\in X");
     await ada.locator("#resultProof").fill("Assume that $x$ is an object of $X$. Since equality is reflexive, $x=x$ follows immediately. Therefore the displayed statement holds for every selected object.");
