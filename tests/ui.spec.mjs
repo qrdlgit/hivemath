@@ -10,10 +10,9 @@ async function join(page, name, pin) {
 }
 
 test("two mathematicians collaborate, receive MCP-style coaching, and validate a revision", async ({ browser, request }) => {
-  const firstContext = await browser.newContext();
-  const secondContext = await browser.newContext();
-  const ada = await firstContext.newPage();
-  const emmy = await secondContext.newPage();
+  const context = await browser.newContext();
+  const ada = await context.newPage();
+  const emmy = await context.newPage();
   try {
     await join(ada, "Ada Browser", "1234");
     await join(emmy, "Emmy Browser", "5678");
@@ -30,7 +29,7 @@ test("two mathematicians collaborate, receive MCP-style coaching, and validate a
     await expect(emmy.getByText("Browser equality lemma", { exact: true })).toBeVisible();
 
     const resultId = await ada.evaluate(async () => {
-      const token = localStorage.getItem("mathhive.token");
+      const token = sessionStorage.getItem("mathhive.token");
       const bootstrap = await fetch("/api/bootstrap", { headers: { Authorization: `Bearer ${token}` } }).then((response) => response.json());
       return bootstrap.results.find((item) => item.title === "Browser equality lemma").id;
     });
@@ -86,9 +85,8 @@ test("two mathematicians collaborate, receive MCP-style coaching, and validate a
     await expect(ada.locator("#profilePopover")).toContainText("Ada Browser");
     await ada.getByRole("menuitem", { name: "Log out" }).click();
     await expect(ada.locator("#joinGate")).toBeVisible();
-    expect(await ada.evaluate(() => localStorage.getItem("mathhive.token"))).toBeNull();
+    expect(await ada.evaluate(() => sessionStorage.getItem("mathhive.token"))).toBeNull();
   } finally {
-    await firstContext.close();
-    await secondContext.close();
+    await context.close();
   }
 });

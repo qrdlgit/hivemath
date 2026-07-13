@@ -1,8 +1,12 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const tokenKey = "mathhive.token";
+
+// Incognito windows share localStorage; identity must stay scoped to one window.
+localStorage.removeItem(tokenKey);
 
 const state = {
-  token: localStorage.getItem("mathhive.token"),
+  token: sessionStorage.getItem(tokenKey),
   profile: null,
   space: null,
   spaces: [],
@@ -180,7 +184,7 @@ async function initialize() {
   } catch (error) {
     if (error.status === 401) {
       state.token = null;
-      localStorage.removeItem("mathhive.token");
+      sessionStorage.removeItem(tokenKey);
     } else showToast(error.message, "error");
   }
 }
@@ -836,7 +840,8 @@ async function logout() {
     state.token = null;
     clearTimeout(state.reconnectTimer);
     state.socket?.close();
-    localStorage.removeItem("mathhive.token");
+    sessionStorage.removeItem(tokenKey);
+    localStorage.removeItem(tokenKey);
     location.reload();
   }
 }
@@ -851,7 +856,7 @@ function bindEvents() {
       const requested = state.spaces.find((space) => space.inviteSlug === inviteSlug()) || state.spaces[0];
       const joined = await api("/api/join", { auth: false, method: "POST", body: { inviteSlug: requested.inviteSlug, displayName: $("#joinName").value, pin: $("#joinPin").value } });
       state.token = joined.token;
-      localStorage.setItem("mathhive.token", joined.token);
+      sessionStorage.setItem(tokenKey, joined.token);
       await loadWorkspace(joined.space.id);
       $("#joinGate").hidden = true;
     } catch (error) {
