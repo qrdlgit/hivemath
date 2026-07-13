@@ -84,6 +84,16 @@ export async function createMathHiveServer(options = {}) {
   app.post("/api/spaces/:spaceId/root", asyncRoute(async (req, res) => res.json(await store.setRootResult(req.token, req.params.spaceId, req.body?.resultId))));
   app.post("/api/spaces/:spaceId/lead-transfer", asyncRoute(async (req, res) => res.json(await store.offerLeadTransfer(req.token, req.params.spaceId, req.body?.profileId))));
   app.post("/api/spaces/:spaceId/lead-transfer/respond", asyncRoute(async (req, res) => res.json(await store.respondLeadTransfer(req.token, req.params.spaceId, req.body?.accept === true))));
+  app.get("/api/spaces/:spaceId/current-status/export", (req, res) => {
+    const exported = store.exportCurrentStatusContext(req.token, req.params.spaceId);
+    res.setHeader("Content-Disposition", `attachment; filename="${exported.filename}"`);
+    res.type("text/markdown").send(exported.markdown);
+  });
+  app.patch("/api/spaces/:spaceId/current-status", asyncRoute(async (req, res) => res.json(await store.updateCurrentStatusDraft(req.token, req.params.spaceId, req.body || {}))));
+  app.post("/api/spaces/:spaceId/current-status/fill", asyncRoute(async (req, res) => res.status(202).json(await store.requestCurrentStatusAssistance(req.token, req.params.spaceId, "fill"))));
+  app.post("/api/spaces/:spaceId/current-status/review", asyncRoute(async (req, res) => res.status(202).json(await store.requestCurrentStatusAssistance(req.token, req.params.spaceId, "review"))));
+  app.post("/api/spaces/:spaceId/current-status/publish", asyncRoute(async (req, res) => res.json(await store.publishCurrentStatus(req.token, req.params.spaceId, req.body || {}))));
+  app.post("/api/current-status-suggestions/:id/respond", asyncRoute(async (req, res) => res.json(await store.respondCurrentStatusSuggestion(req.token, req.params.id, req.body?.accept === true))));
   app.post("/api/tasks", asyncRoute(async (req, res) => res.status(201).json(await store.createTask(req.token, req.body || {}))));
   app.patch("/api/tasks/:taskId", asyncRoute(async (req, res) => res.json(await store.updateTask(req.token, req.params.taskId, req.body || {}))));
   app.post("/api/tasks/:taskId/volunteer", asyncRoute(async (req, res) => res.json(await store.volunteerForTask(req.token, req.params.taskId))));
@@ -131,6 +141,8 @@ export async function createMathHiveServer(options = {}) {
   app.post("/api/internal/work/:id/validation", asyncRoute(async (req, res) => res.json(await store.submitValidation({ ...req.body, workId: req.params.id }))));
   app.post("/api/internal/work/:id/conjecture-review", asyncRoute(async (req, res) => res.json(await store.submitConjectureReview({ ...req.body, workId: req.params.id }))));
   app.post("/api/internal/work/:id/integrations", asyncRoute(async (req, res) => res.json(await store.submitIntegrations({ ...req.body, workId: req.params.id }))));
+  app.post("/api/internal/work/:id/current-status-draft", asyncRoute(async (req, res) => res.json(await store.submitCurrentStatusDraft({ ...req.body, workId: req.params.id }))));
+  app.post("/api/internal/work/:id/current-status-review", asyncRoute(async (req, res) => res.json(await store.submitCurrentStatusReview({ ...req.body, workId: req.params.id }))));
   app.post("/api/internal/work/:id/fail", asyncRoute(async (req, res) => res.json(await store.failWork({ ...req.body, workId: req.params.id }))));
   app.get("/api/internal/projection/:spaceId", (req, res) => res.json(store.inspectProjection(req.params.spaceId)));
   app.post("/api/internal/agent-status", asyncRoute(async (req, res) => res.json(await store.setAgentStatus(req.body || {}))));

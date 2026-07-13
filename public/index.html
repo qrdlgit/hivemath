@@ -170,6 +170,21 @@
           <button data-right-tab="notices"><i data-lucide="bell"></i><span>Notices</span></button>
         </nav>
         <section class="work-section active" id="workSection" data-right-panel="work">
+          <section class="current-status-section" id="currentStatusSection">
+            <header><div><i data-lucide="clipboard-list"></i><strong>Current status</strong></div><time id="currentStatusTime">Not published</time></header>
+            <div class="current-status-open" id="openCurrentStatus" role="button" tabindex="0" aria-label="Open current status">
+              <div class="current-status-excerpt status-prose" id="currentStatusExcerpt">No current status has been published.</div>
+            </div>
+            <div class="current-status-meta"><span id="currentStatusVersion"></span><span id="currentStatusDraftState"></span></div>
+            <div class="current-status-context-actions">
+              <button id="copyCurrentStatusContext" type="button"><i data-lucide="copy"></i><span>Copy context</span></button>
+              <button id="exportCurrentStatus" type="button"><i data-lucide="download"></i><span>Export .md</span></button>
+            </div>
+            <div class="current-status-actions" id="currentStatusActions">
+              <button id="fillCurrentStatus" type="button"><i data-lucide="sparkles"></i><span>Fill with Codex</span></button>
+              <button id="editCurrentStatus" type="button"><i data-lucide="square-pen"></i><span>Edit</span></button>
+            </div>
+          </section>
           <div class="panel-heading work-heading"><div><span class="work-icon"><i data-lucide="waypoints"></i></span><h2>Research blueprint</h2></div><button class="small-icon-button" id="addTask" title="Add official task" aria-label="Add official task"><i data-lucide="plus"></i></button></div>
           <div class="work-summary" id="workSummary"></div>
           <div class="work-filter" role="tablist"><button class="active" data-task-filter="active">Active</button><button data-task-filter="open">Open</button><button data-task-filter="blocked">Blocked</button><button data-task-filter="done">Done</button></div>
@@ -319,6 +334,32 @@
         <header><div><span class="eyebrow">Accepted assignment</span><h2>Choose task</h2></div><button class="small-icon-button" id="closeTaskChooser" type="button" title="Close" aria-label="Close task chooser"><i data-lucide="x"></i></button></header>
         <label>Task<select id="contributionTask"></select></label>
         <footer><button class="secondary-button" id="cancelTaskChooser" type="button">Cancel</button><button class="primary-button" type="submit">Start contribution</button></footer>
+      </form>
+    </div>
+
+    <div class="form-modal status-modal" id="currentStatusModal" hidden>
+      <form id="currentStatusForm">
+        <header><div><span class="eyebrow" id="currentStatusEyebrow">Published status</span><h2>Current status</h2></div><button class="small-icon-button" id="closeCurrentStatus" type="button" title="Close" aria-label="Close current status"><i data-lucide="x"></i></button></header>
+        <div class="status-compose" id="statusCompose">
+          <label class="status-write-field" id="statusWriteField">Markdown + LaTeX<textarea id="currentStatusMarkdown" rows="16" maxlength="50000" placeholder="Where does the project currently stand?"></textarea></label>
+          <div class="status-preview-field"><span>Preview</span><div class="status-preview status-prose" id="currentStatusPreview"></div></div>
+        </div>
+        <section class="status-suggestion" id="statusSuggestion" hidden>
+          <header><div><i data-lucide="sparkles"></i><strong>Codex suggested revision</strong></div></header>
+          <p id="statusSuggestionRationale"></p>
+          <div class="status-suggestion-preview status-prose" id="statusSuggestionPreview"></div>
+          <div class="status-suggestion-actions"><button class="primary-button" id="useStatusSuggestion" type="button"><i data-lucide="check"></i>Use suggestion</button><button class="secondary-button" id="dismissStatusSuggestion" type="button">Dismiss</button></div>
+        </section>
+        <section class="status-history-section">
+          <header><strong>History</strong><span>Published snapshots</span></header>
+          <div class="status-history-list" id="statusHistoryList"></div>
+        </section>
+        <footer>
+          <span id="currentStatusSaveState">Saved</span>
+          <button class="secondary-button status-lead-action" id="fillCurrentStatusModal" type="button"><i data-lucide="sparkles"></i>Fill with Codex</button>
+          <button class="secondary-button status-lead-action" id="reviewCurrentStatus" type="button"><i data-lucide="scan-text"></i>Ask Codex</button>
+          <button class="primary-button status-lead-action" id="publishCurrentStatus" type="button"><i data-lucide="send"></i>Publish</button>
+        </footer>
       </form>
     </div>
 

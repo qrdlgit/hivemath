@@ -130,3 +130,60 @@ test("MCP polls, claims context, and pushes draft feedback into MathHive", async
     await runtime.stop();
   }
 });
+
+test("MCP fills and reviews current status from complete timestamped context", async () => {
+  const runtime = await createMathHiveServer({ port: 0, storeFile: `/tmp/mathhive-mcp-status-${randomUUID()}.json`, reset: true });
+  const address = await runtime.start();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const joined = await (await fetch(`${baseUrl}/api/join`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inviteSlug: "spectral-gap", displayName: "Status MCP Lead", pin: "9753" }) })).json();
+  const headers = { Authorization: `Bearer ${joined.token}`, "Content-Type": "application/json" };
+  await fetch(`${baseUrl}/api/spaces/${joined.space.id}/current-status/fill`, { method: "POST", headers, body: "{}" });
+
+  const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(rootDir, "mcp/server.mjs")], cwd: rootDir, env: { ...process.env, MATHHIVE_URL: baseUrl }, stderr: "pipe" });
+  const client = new Client({ name: "mathhive-status-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const tools = await client.listTools();
+    assert.equal(tools.tools.some((tool) => tool.name === "submit_current_status_draft"), true);
+    assert.equal(tools.tools.some((tool) => tool.name === "submit_current_status_review"), true);
+    let next = parsed(await client.callTool({ name: "get_next_work", arguments: {} }));
+    assert.equal(next.work.type, "fill_current_status");
+    let context = parsed(await client.callTool({ name: "get_work_context", arguments: { workId: next.work.id } }));
+    assert.equal(context.results.some((item) => item.id === "result-main" && item.proofMarkdown), true);
+    assert.equal(context.tasks.length, 3);
+    assert.equal(context.statusHistory.length, 1);
+    assert.equal(context.timestampedHistory.some((item) => item.type === "status_publication"), true);
+    const filledMarkdown = "The active program still depends on [Bound 3.2](#result:result-bound), with [Complete the Bound 3.2 proof](#task:task-bound-proof) as the immediate open task. The target inequality is $\\lambda_1(G) \\ge \\frac{1}{2|S|}\\Phi(G)^2$.";
+    parsed(await client.callTool({ name: "submit_current_status_draft", arguments: {
+      workId: next.work.id, baseDraftRevision: context.baseDraftRevision, markdown: filledMarkdown,
+      summary: "Summarized the active dependency and task from the complete workspace context.",
+      sourceRefs: [{ entityType: "result", entityId: "result-bound", label: "Bound 3.2" }, { entityType: "task", entityId: "task-bound-proof", label: "Open proof task" }],
+      notification: { title: "Current status draft ready", body: "Codex summarized the active bound and task." }
+    } }));
+    let bootstrap = await (await fetch(`${baseUrl}/api/bootstrap?spaceId=${joined.space.id}`, { headers })).json();
+    assert.equal(bootstrap.currentStatus.draftMarkdown, filledMarkdown);
+    assert.equal(bootstrap.notifications.some((item) => item.type === "current_status_draft"), true);
+
+    const manualMarkdown = "The proof program is making progress, but the next step needs clarification.";
+    const saved = await (await fetch(`${baseUrl}/api/spaces/${joined.space.id}/current-status`, { method: "PATCH", headers, body: JSON.stringify({ markdown: manualMarkdown, baseDraftRevision: bootstrap.currentStatus.draftRevision }) })).json();
+    await fetch(`${baseUrl}/api/spaces/${joined.space.id}/current-status/review`, { method: "POST", headers, body: "{}" });
+    next = parsed(await client.callTool({ name: "get_next_work", arguments: {} }));
+    assert.equal(next.work.type, "review_current_status");
+    context = parsed(await client.callTool({ name: "get_work_context", arguments: { workId: next.work.id } }));
+    assert.equal(context.currentStatus.draftMarkdown, manualMarkdown);
+    const proposedMarkdown = `${manualMarkdown}\n\nMore precisely, [Bound 3.2](#result:result-bound) remains pending and its linked proof task is open.`;
+    parsed(await client.callTool({ name: "submit_current_status_review", arguments: {
+      workId: next.work.id, baseDraftRevision: saved.draftRevision, proposedMarkdown,
+      rationale: "The proposal replaces an ambiguous next step with the exact pending result and task state.",
+      sourceRefs: [{ entityType: "result", entityId: "result-bound", label: "Pending bound" }],
+      notification: { title: "Codex status suggestion ready", body: "Codex clarified the pending result in the current status." }
+    } }));
+    bootstrap = await (await fetch(`${baseUrl}/api/bootstrap?spaceId=${joined.space.id}`, { headers })).json();
+    assert.equal(bootstrap.statusSuggestions.length, 1);
+    assert.equal(bootstrap.statusSuggestions[0].proposedMarkdown, proposedMarkdown);
+    assert.equal(bootstrap.notifications.some((item) => item.type === "current_status_review"), true);
+  } finally {
+    await client.close().catch(() => {});
+    await runtime.stop();
+  }
+});

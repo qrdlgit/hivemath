@@ -22,6 +22,9 @@ const state = {
   comments: [],
   draftFeedback: [],
   suggestions: [],
+  currentStatus: null,
+  statusHistory: [],
+  statusSuggestions: [],
   notifications: [],
   activity: [],
   presence: [],
@@ -37,6 +40,11 @@ const state = {
   socket: null,
   reconnectTimer: null,
   saveTimer: null,
+  statusSaveTimer: null,
+  statusSavePromise: Promise.resolve(),
+  statusLocalDirty: false,
+  statusExporting: false,
+  statusCopying: false,
   suppressEditorSync: false,
   zoom: 1,
   pan: { x: 0, y: 0 },
@@ -249,6 +257,7 @@ function renderAll() {
   renderWorkspace();
   renderSpaces();
   renderPresence();
+  renderCurrentStatus();
   renderWork();
   renderSpaceSettings();
   renderNodes();
@@ -305,6 +314,271 @@ function renderSpaceSettings() {
   const transferCandidates = state.memberships.filter((item) => item.profileId !== state.profile.id).map((item) => state.profiles.find((profile) => profile.id === item.profileId)).filter(Boolean);
   $("#leadTransferSelect").innerHTML = transferCandidates.map((profile) => `<option value="${profile.id}">${escapeHtml(profile.displayName)}</option>`).join("");
   $("#offerLeadTransfer").disabled = transferCandidates.length === 0;
+}
+
+function timestampLabel(timestamp) {
+  if (!timestamp) return "Not published";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(timestamp));
+}
+
+function renderStatusMarkdown(element, source, emptyText = "No current status has been published.") {
+  if (!element) return;
+  element.innerHTML = source?.trim() ? renderMarkdown(source) : `<span class="empty-math">${escapeHtml(emptyText)}</span>`;
+  bindStatusLinks(element);
+}
+
+function renderCurrentStatus() {
+  if (!state.profile) return;
+  const status = state.currentStatus;
+  renderStatusMarkdown($("#currentStatusExcerpt"), status?.publishedMarkdown);
+  $("#currentStatusTime").textContent = status?.publishedAt ? relativeTime(status.publishedAt) : "Not published";
+  $("#currentStatusTime").title = status?.publishedAt ? timestampLabel(status.publishedAt) : "";
+  $("#currentStatusVersion").textContent = status?.version ? `v${status.version}` : "";
+  const hasDraft = isLead() && Boolean(status?.draftMarkdown?.trim()) && status.draftMarkdown !== status.publishedMarkdown;
+  $("#currentStatusDraftState").textContent = status?.codexState ? `Codex ${status.codexState}` : hasDraft ? "Draft saved" : "";
+  $("#currentStatusActions").hidden = !isLead();
+  const contextBusy = state.statusExporting || state.statusCopying;
+  $("#exportCurrentStatus").disabled = contextBusy;
+  $("#copyCurrentStatusContext").disabled = contextBusy;
+  $("#exportCurrentStatus span").textContent = state.statusExporting ? "Exporting" : "Export .md";
+  $("#copyCurrentStatusContext span").textContent = state.statusCopying ? "Copying" : "Copy context";
+  const busy = Boolean(status?.codexState);
+  $("#fillCurrentStatus").disabled = busy;
+  $("#editCurrentStatus").disabled = false;
+  $("#fillCurrentStatus").querySelector("span").textContent = busy ? "Codex working" : "Fill with Codex";
+  refreshIcons($("#currentStatusSection"));
+}
+
+function openCurrentStatus() {
+  const lead = isLead();
+  $("#currentStatusModal").hidden = false;
+  $("#statusWriteField").hidden = !lead;
+  $("#statusCompose").classList.toggle("read-only", !lead);
+  $$(".status-lead-action", $("#currentStatusModal")).forEach((button) => { button.hidden = !lead; });
+  $("#currentStatusEyebrow").textContent = lead ? "Lead draft" : "Published status";
+  state.statusLocalDirty = false;
+  if (lead) $("#currentStatusMarkdown").value = state.currentStatus?.draftMarkdown ?? state.currentStatus?.publishedMarkdown ?? "";
+  renderCurrentStatusModal();
+  refreshIcons($("#currentStatusModal"));
+}
+
+async function closeCurrentStatus() {
+  if (isLead()) {
+    try { await saveCurrentStatusDraft(); } catch (error) { return showToast(error.message, "error"); }
+  }
+  $("#currentStatusModal").hidden = true;
+}
+
+function renderCurrentStatusModal({ syncDraft = false } = {}) {
+  const status = state.currentStatus;
+  const lead = isLead();
+  if (lead && syncDraft && !state.statusLocalDirty) $("#currentStatusMarkdown").value = status?.draftMarkdown ?? status?.publishedMarkdown ?? "";
+  const markdown = lead ? $("#currentStatusMarkdown").value : status?.publishedMarkdown || "";
+  renderStatusMarkdown($("#currentStatusPreview"), markdown, lead ? "Start writing or ask Codex to fill this draft." : "No current status has been published.");
+  const busy = Boolean(status?.codexState);
+  $("#fillCurrentStatusModal").disabled = busy;
+  $("#reviewCurrentStatus").disabled = busy || !markdown.trim();
+  $("#publishCurrentStatus").disabled = busy || !markdown.trim();
+  $("#fillCurrentStatusModal").innerHTML = `${icon("sparkles")}${busy ? "Codex working" : "Fill with Codex"}`;
+  renderCurrentStatusSuggestion();
+  renderCurrentStatusHistory();
+  refreshIcons($("#currentStatusModal"));
+}
+
+function renderCurrentStatusHistory() {
+  const histories = [...state.statusHistory].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+  $("#statusHistoryList").innerHTML = histories.map((item) => `<details data-status-history-id="${item.id}"><summary><strong>v${item.version}</strong><time>${escapeHtml(timestampLabel(item.publishedAt))}</time><span>${escapeHtml(authorName(item.publishedBy))}${item.codexAssisted ? " · Codex-assisted" : ""}</span></summary><div class="status-history-content status-prose"></div></details>`).join("") || '<div class="empty-message">No published history yet.</div>';
+  histories.forEach((item) => renderStatusMarkdown($(`[data-status-history-id="${item.id}"] .status-history-content`), item.markdown, "Empty snapshot"));
+}
+
+function currentStatusSuggestion() {
+  return state.statusSuggestions.find((item) => item.status === "open") || null;
+}
+
+function renderCurrentStatusSuggestion() {
+  const suggestion = currentStatusSuggestion();
+  $("#statusSuggestion").hidden = !suggestion || !isLead();
+  if (!suggestion || !isLead()) return;
+  $("#statusSuggestion").dataset.suggestionId = suggestion.id;
+  $("#statusSuggestionRationale").textContent = suggestion.rationale;
+  renderStatusMarkdown($("#statusSuggestionPreview"), suggestion.proposedMarkdown, "Codex did not return a proposed revision.");
+}
+
+function bindStatusLinks(root) {
+  $$("a", root).forEach((link) => link.addEventListener("click", (event) => {
+    const href = link.getAttribute("href") || "";
+    const match = href.match(/^#(result|task):(.+)$/);
+    if (!match) return;
+    event.preventDefault();
+    event.stopPropagation();
+    $("#currentStatusModal").hidden = true;
+    if (match[1] === "result") focusGraphResult(match[2]);
+    else focusStatusTask(match[2]);
+  }));
+}
+
+function focusGraphResult(resultId) {
+  const result = state.results.find((item) => item.id === resultId);
+  const element = result && $(`[data-node-id="${result.id}"]`);
+  if (!result || !element) return showToast("That result is not available in this theorem space.", "error");
+  state.pan.x = viewport.clientWidth / 2 - (Number(result.x) + element.offsetWidth / 2) * state.zoom;
+  state.pan.y = viewport.clientHeight / 2 - (Number(result.y) + element.offsetHeight / 2) * state.zoom;
+  applyStageTransform();
+  openResult(result.id);
+}
+
+function focusStatusTask(taskId) {
+  const task = state.tasks.find((item) => item.id === taskId);
+  if (!task) return showToast("That task is not available in this theorem space.", "error");
+  state.taskFilter = task.status === "done" ? "done" : task.status === "blocked" ? "blocked" : "active";
+  $$('[data-task-filter]').forEach((button) => button.classList.toggle("active", button.dataset.taskFilter === state.taskFilter));
+  selectRightTab("work");
+  renderWork();
+  requestAnimationFrame(() => $("#taskList").querySelector(`[data-task-id="${task.id}"]`)?.scrollIntoView({ block: "center" }));
+}
+
+function scheduleCurrentStatusSave() {
+  state.statusLocalDirty = true;
+  $("#currentStatusSaveState").textContent = "Unsaved";
+  clearTimeout(state.statusSaveTimer);
+  state.statusSaveTimer = setTimeout(() => saveCurrentStatusDraft().catch((error) => showToast(error.message, "error")), 500);
+}
+
+async function saveCurrentStatusDraft() {
+  clearTimeout(state.statusSaveTimer);
+  if (!isLead() || $("#currentStatusModal").hidden) return state.currentStatus;
+  const operation = state.statusSavePromise.catch(() => {}).then(async () => {
+    const markdown = $("#currentStatusMarkdown").value;
+    const currentMarkdown = state.currentStatus?.draftMarkdown ?? "";
+    if (markdown === currentMarkdown) {
+      state.statusLocalDirty = false;
+      $("#currentStatusSaveState").textContent = "Saved";
+      return state.currentStatus;
+    }
+    $("#currentStatusSaveState").textContent = "Saving...";
+    const updated = await api(`/api/spaces/${state.space.id}/current-status`, { method: "PATCH", body: { markdown, baseDraftRevision: state.currentStatus?.draftRevision ?? 0 } });
+    state.currentStatus = updated;
+    state.statusLocalDirty = $("#currentStatusMarkdown").value !== updated.draftMarkdown;
+    $("#currentStatusSaveState").textContent = state.statusLocalDirty ? "Unsaved" : "Saved";
+    renderCurrentStatus();
+    if (state.statusLocalDirty) scheduleCurrentStatusSave();
+    return updated;
+  });
+  state.statusSavePromise = operation;
+  return operation;
+}
+
+async function requestCurrentStatusCodex(mode) {
+  if (!isLead()) return;
+  try {
+    await saveCurrentStatusDraft();
+    const payload = await api(`/api/spaces/${state.space.id}/current-status/${mode}`, { method: "POST", body: {} });
+    state.currentStatus = payload.status;
+    renderCurrentStatus();
+    renderCurrentStatusModal({ syncDraft: true });
+    showToast(mode === "fill" ? "Codex is drafting the current status" : "Codex is reviewing the current status");
+  } catch (error) { showToast(error.message, "error"); }
+}
+
+async function fetchCurrentStatusContextMarkdown() {
+  if (isLead() && !$("#currentStatusModal").hidden) await saveCurrentStatusDraft();
+  const response = await fetch(`/api/spaces/${state.space.id}/current-status/export`, { headers: { Authorization: `Bearer ${state.token}` } });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.message || `Context request failed (${response.status})`);
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  return {
+    markdown: await response.text(),
+    filename: disposition.match(/filename="([^"]+)"/i)?.[1] || "mathhive-codex-context.md"
+  };
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    const field = document.createElement("textarea");
+    field.value = text;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.append(field);
+    field.select();
+    const copied = document.execCommand("copy");
+    field.remove();
+    if (!copied) throw new Error("The browser could not copy this context.");
+  }
+}
+
+async function exportCurrentStatusContext() {
+  if (state.statusExporting || state.statusCopying) return;
+  state.statusExporting = true;
+  renderCurrentStatus();
+  try {
+    const { markdown, filename } = await fetchCurrentStatusContextMarkdown();
+    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast("Codex context exported");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    state.statusExporting = false;
+    renderCurrentStatus();
+  }
+}
+
+async function copyCurrentStatusContext() {
+  if (state.statusExporting || state.statusCopying) return;
+  state.statusCopying = true;
+  renderCurrentStatus();
+  try {
+    const { markdown } = await fetchCurrentStatusContextMarkdown();
+    await copyText(markdown);
+    showToast("Codex context copied");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    state.statusCopying = false;
+    renderCurrentStatus();
+  }
+}
+
+async function publishCurrentStatus() {
+  try {
+    await saveCurrentStatusDraft();
+    const payload = await api(`/api/spaces/${state.space.id}/current-status/publish`, { method: "POST", body: { baseDraftRevision: state.currentStatus?.draftRevision ?? 0 } });
+    state.currentStatus = payload.status;
+    upsert(state.statusHistory, payload.history);
+    state.statusSuggestions = state.statusSuggestions.filter((item) => item.status === "open" && item.statusId !== payload.status.id);
+    renderCurrentStatus();
+    renderCurrentStatusModal({ syncDraft: true });
+    showToast("Current status published");
+  } catch (error) { showToast(error.message, "error"); }
+}
+
+async function respondCurrentStatusSuggestion(accept) {
+  const suggestion = currentStatusSuggestion();
+  if (!suggestion) return;
+  try {
+    const payload = await api(`/api/current-status-suggestions/${suggestion.id}/respond`, { method: "POST", body: { accept } });
+    state.currentStatus = payload.status;
+    state.statusSuggestions = state.statusSuggestions.filter((item) => item.id !== suggestion.id);
+    if (accept) {
+      state.statusLocalDirty = false;
+      $("#currentStatusMarkdown").value = payload.status.draftMarkdown;
+    }
+    renderCurrentStatus();
+    renderCurrentStatusModal();
+    showToast(accept ? "Codex suggestion applied" : "Codex suggestion dismissed");
+  } catch (error) { showToast(error.message, "error"); }
 }
 
 function taskStatusLabel(status) {
@@ -393,6 +667,7 @@ async function handleTaskAction(button) {
 async function switchWorkspace(spaceId) {
   if (spaceId === state.space.id) return $("#workspacePopover").classList.remove("open");
   try {
+    if (!$("#currentStatusModal").hidden) await closeCurrentStatus();
     closeEditor();
     await api("/api/profiles/me", { method: "PATCH", body: { activeSpaceId: spaceId } });
     stage.dataset.fitted = "";
@@ -783,6 +1058,24 @@ function handleRealtime(event) {
     return;
   }
   if (event.type !== "entity.upsert") return;
+  if (event.entityType === "current_status") {
+    state.currentStatus = event.entity;
+    renderCurrentStatus();
+    if (!$("#currentStatusModal").hidden) renderCurrentStatusModal({ syncDraft: true });
+    return;
+  }
+  if (event.entityType === "status_history") {
+    upsert(state.statusHistory, event.entity);
+    renderCurrentStatus();
+    if (!$("#currentStatusModal").hidden) renderCurrentStatusHistory();
+    return;
+  }
+  if (event.entityType === "status_suggestion") {
+    if (event.entity.status === "open") upsert(state.statusSuggestions, event.entity);
+    else state.statusSuggestions = state.statusSuggestions.filter((item) => item.id !== event.entity.id);
+    if (!$("#currentStatusModal").hidden) renderCurrentStatusSuggestion();
+    return;
+  }
   const collections = { result: "results", edge: "edges", review: "reviews", comment: "comments", suggestion: "suggestions", notification: "notifications", task: "tasks", membership: "memberships" };
   const collection = collections[event.entityType];
   if (!collection) return;
@@ -1182,7 +1475,7 @@ async function actOnSuggestion(id, action) {
 }
 
 function notificationIcon(type) {
-  return ({ validation: "badge-check", relevance: "network", conjecture_review: "lightbulb", conjecture_proved: "file-check-2", conjecture_refuted: "circle-x", task_volunteer: "hand", task_volunteer_response: "user-check", task_invite: "mail", task_invite_response: "mail-check", task_proposal: "list-plus", task_proposal_response: "list-checks", task_blocked: "circle-alert", task_released: "undo-2", task_completed: "badge-check", lead_transfer: "user-cog", draft_feedback: "sparkles", agent_failed: "circle-alert" })[type] || "bell";
+  return ({ validation: "badge-check", relevance: "network", conjecture_review: "lightbulb", conjecture_proved: "file-check-2", conjecture_refuted: "circle-x", task_volunteer: "hand", task_volunteer_response: "user-check", task_invite: "mail", task_invite_response: "mail-check", task_proposal: "list-plus", task_proposal_response: "list-checks", task_blocked: "circle-alert", task_released: "undo-2", task_completed: "badge-check", lead_transfer: "user-cog", draft_feedback: "sparkles", current_status_draft: "sparkles", current_status_review: "scan-text", current_status_published: "clipboard-check", agent_failed: "circle-alert" })[type] || "bell";
 }
 
 function renderNotifications() {
@@ -1191,16 +1484,34 @@ function renderNotifications() {
   const unread = sorted.filter((item) => !item.readBy?.includes(state.profile.id));
   $("#notificationBadge").textContent = unread.length;
   $("#notificationBadge").hidden = unread.length === 0;
-  $("#notificationsList").innerHTML = sorted.slice(0, 8).map((notification) => `<button class="notification-item ${notification.readBy?.includes(state.profile.id) ? "" : "unread"}" data-notification-id="${notification.id}" data-entity-id="${notification.entityId || ""}">
-    <span class="notification-icon" style="--notification-color:#6557ed">${icon(notificationIcon(notification.type))}</span><p><strong>${escapeHtml(notification.title)}</strong><br>${escapeHtml(notification.body)}</p><time>${relativeTime(notification.createdAt)}</time>
-  </button>`).join("") || '<div class="empty-message">No notifications yet.</div>';
+  $("#markAllRead").disabled = unread.length === 0;
+  $("#markAllRead").textContent = unread.length ? `Mark all read (${unread.length})` : "All read";
+  $("#notificationsList").innerHTML = sorted.slice(0, 8).map((notification) => {
+    const read = notification.readBy?.includes(state.profile.id);
+    return `<article class="notification-item ${read ? "read" : "unread"}" data-notification-row="${notification.id}">
+      <button class="notification-open" data-notification-id="${notification.id}" data-entity-type="${notification.entityType || ""}" data-entity-id="${notification.entityId || ""}" aria-label="Open notification: ${escapeHtml(notification.title)}">
+        <span class="notification-icon" style="--notification-color:#6557ed">${icon(notificationIcon(notification.type))}</span>
+        <span class="notification-copy"><span class="notification-title-row"><strong>${escapeHtml(notification.title)}</strong><span class="notification-read-state ${read ? "read" : "unread"}">${read ? `${icon("check")}Read` : "Unread"}</span></span><span>${escapeHtml(notification.body)}</span></span>
+      </button>
+      <span class="notification-meta"><time>${relativeTime(notification.createdAt)}</time>${read ? "" : `<button class="notification-mark-read" data-mark-notification-read="${notification.id}" aria-label="Mark ${escapeHtml(notification.title)} as read">${icon("check")}<span>Mark read</span></button>`}</span>
+    </article>`;
+  }).join("") || '<div class="empty-message">No notifications yet.</div>';
   $$('[data-notification-id]').forEach((button) => button.addEventListener("click", async () => {
-    await readNotifications([button.dataset.notificationId]);
-    if (state.results.some((result) => result.id === button.dataset.entityId)) openResult(button.dataset.entityId);
-    if (state.tasks.some((task) => task.id === button.dataset.entityId)) {
+    const notificationId = button.dataset.notificationId;
+    const entityType = button.dataset.entityType;
+    const entityId = button.dataset.entityId;
+    const notification = state.notifications.find((item) => item.id === notificationId);
+    if (!notification?.readBy?.includes(state.profile.id)) await readNotifications([notificationId]);
+    if (entityType === "current_status") openCurrentStatus();
+    if (state.results.some((result) => result.id === entityId)) openResult(entityId);
+    if (state.tasks.some((task) => task.id === entityId)) {
       selectRightTab("work");
-      $("#taskList").querySelector(`[data-task-id="${button.dataset.entityId}"]`)?.scrollIntoView({ block: "center" });
+      $("#taskList").querySelector(`[data-task-id="${entityId}"]`)?.scrollIntoView({ block: "center" });
     }
+  }));
+  $$('[data-mark-notification-read]').forEach((button) => button.addEventListener("click", async () => {
+    await readNotifications([button.dataset.markNotificationRead]);
+    showToast("Notification marked as read");
   }));
   refreshIcons($("#notificationsList"));
 }
@@ -1437,6 +1748,25 @@ function bindEvents() {
   $("#acceptLeadTransfer").addEventListener("click", () => respondLeadTransfer(true));
   $("#declineLeadTransfer").addEventListener("click", () => respondLeadTransfer(false));
   $("#goRoot").addEventListener("click", goToRoot);
+  $("#openCurrentStatus").addEventListener("click", openCurrentStatus);
+  $("#openCurrentStatus").addEventListener("keydown", (event) => {
+    if (["Enter", " "].includes(event.key)) { event.preventDefault(); openCurrentStatus(); }
+  });
+  $("#editCurrentStatus").addEventListener("click", () => { openCurrentStatus(); $("#currentStatusMarkdown").focus(); });
+  $("#fillCurrentStatus").addEventListener("click", () => { openCurrentStatus(); requestCurrentStatusCodex("fill"); });
+  $("#closeCurrentStatus").addEventListener("click", closeCurrentStatus);
+  $("#currentStatusForm").addEventListener("submit", (event) => event.preventDefault());
+  $("#currentStatusMarkdown").addEventListener("input", () => {
+    renderCurrentStatusModal();
+    scheduleCurrentStatusSave();
+  });
+  $("#fillCurrentStatusModal").addEventListener("click", () => requestCurrentStatusCodex("fill"));
+  $("#exportCurrentStatus").addEventListener("click", exportCurrentStatusContext);
+  $("#copyCurrentStatusContext").addEventListener("click", copyCurrentStatusContext);
+  $("#reviewCurrentStatus").addEventListener("click", () => requestCurrentStatusCodex("review"));
+  $("#publishCurrentStatus").addEventListener("click", publishCurrentStatus);
+  $("#useStatusSuggestion").addEventListener("click", () => respondCurrentStatusSuggestion(true));
+  $("#dismissStatusSuggestion").addEventListener("click", () => respondCurrentStatusSuggestion(false));
   $("#addTask").addEventListener("click", () => openTaskModal());
   $("#closeTaskModal").addEventListener("click", () => closeModal("#taskModal"));
   $("#cancelTask").addEventListener("click", () => closeModal("#taskModal"));

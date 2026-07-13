@@ -30,6 +30,7 @@ const server = new McpServer({ name: "mathhive-poc", version: "0.1.0" }, {
     "Poll get_next_work. For every claimed item, get its full context, reason through the mathematics yourself, then submit exactly one matching completion command.",
     "For validation, restate the claim, check hypotheses, dependencies, and every proof step. For Proof and Counterexample contributions, compare against relationTarget and return verificationEdge.id so the server can verify that exact edge. Explicitly decide whether linked task work is complete or should stay open.",
     "For conjectures, assess precision and relevance to the theorem space. Conjectures are not proofs and must never be marked validated.",
+    "For current-status work, use the complete workspace snapshot and timestamped history. Produce accurate Markdown with valid LaTeX, preserve recorded validation distinctions, and use the supplied result/task link syntax.",
     "For integration work, search other spaces, inspect full proofs of promising candidates, identify affected active authors, and submit targeted notifications plus executable graph/import changes.",
     "Use inspect_projection after commands that change graph content. If work cannot be completed, call fail_work so its lease does not remain claimed."
   ].join(" ")
@@ -48,7 +49,7 @@ registerReadTool("get_queue_status", {
 registerWriteTool("set_agent_status", {
   description: "Update the visible local agent state for operators. The polling worker uses this for idle, starting, and failed states.",
   inputSchema: {
-    state: z.enum(["offline", "idle", "starting", "reviewing", "integrating", "failed"]),
+    state: z.enum(["offline", "idle", "starting", "reviewing", "summarizing", "integrating", "failed"]),
     currentWorkType: z.string().nullable().default(null)
   }
 }, async (body) => result(await command("/api/internal/agent-status", { method: "POST", body })));
@@ -59,7 +60,7 @@ registerWriteTool("get_next_work", {
 }, async () => result(await command("/api/internal/work/next", { method: "POST", body: {} })));
 
 registerReadTool("get_work_context", {
-  description: "Load the exact result/revision, task assignment, root problem, participants, proof steps, hypotheses, dependencies, prior feedback, graph warnings, and proposed proves/refutes edge with its frozen target conjecture.",
+  description: "Load the complete context for claimed work. Result work includes the exact revision, mathematics, task, graph, and review context. Current-status work includes every current workspace entity, full publication history, and a compact timestamped activity/revision/task timeline.",
   inputSchema: { workId: z.string().uuid() }
 }, async ({ workId }) => result(await command(`/api/internal/work/${workId}/context`)));
 
@@ -79,6 +80,36 @@ const issueSchema = z.object({
   message: z.string().min(1),
   suggestedFix: z.string().optional()
 });
+
+const statusSourceRefSchema = z.object({
+  entityType: z.enum(["result", "task", "edge", "revision", "review", "current_status"]),
+  entityId: z.string().min(1),
+  label: z.string().max(160).default("")
+});
+
+registerWriteTool("submit_current_status_draft", {
+  description: "Fill the lead's current-status draft from the complete claimed workspace context. Return one detailed Markdown note with valid $...$ or $$...$$ LaTeX, exact result/task links, and source references. The server notifies the lead and will not overwrite a concurrently changed draft.",
+  inputSchema: {
+    workId: z.string().uuid(),
+    baseDraftRevision: z.number().int().min(0),
+    markdown: z.string().min(1).max(50_000),
+    summary: z.string().min(1).max(1000),
+    sourceRefs: z.array(statusSourceRefSchema).max(100).default([]),
+    notification: z.object({ title: z.string().min(1), body: z.string().min(1) })
+  }
+}, async ({ workId, ...body }) => result(await command(`/api/internal/work/${workId}/current-status-draft`, { method: "POST", body })));
+
+registerWriteTool("submit_current_status_review", {
+  description: "Review a lead-written current-status draft against the complete workspace context and return one proposed replacement. Preserve sound material, correct inaccuracies, add important omissions, use valid Markdown/LaTeX and exact workspace links, and cite source entities.",
+  inputSchema: {
+    workId: z.string().uuid(),
+    baseDraftRevision: z.number().int().min(0),
+    proposedMarkdown: z.string().min(1).max(50_000),
+    rationale: z.string().min(1).max(2000),
+    sourceRefs: z.array(statusSourceRefSchema).max(100).default([]),
+    notification: z.object({ title: z.string().min(1), body: z.string().min(1) })
+  }
+}, async ({ workId, ...body }) => result(await command(`/api/internal/work/${workId}/current-status-review`, { method: "POST", body })));
 
 registerWriteTool("submit_draft_review", {
   description: "Push realtime coaching for the exact draft revision. The server rejects stale targeting and notifies the draft author.",

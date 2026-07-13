@@ -6,6 +6,8 @@ import path from "node:path";
 const PRIORITY = {
   validate_result: 100,
   review_conjecture: 90,
+  fill_current_status: 80,
+  review_current_status: 80,
   suggest_integrations: 70,
   review_draft_manual: 30,
   review_draft: 10
@@ -32,6 +34,48 @@ const contentLength = (result) => [
   ...(result.hypothesesLatex || []),
   result.proofMarkdown
 ].join(" ").replace(/\s/g, "").length;
+
+const markdownInline = (value) => String(value ?? "").replace(/\s+/g, " ").replace(/([\\`*_[\]])/g, "\\$1");
+const indentedJson = (value) => JSON.stringify(value, null, 2).split("\n").map((line) => `    ${line}`).join("\n");
+
+function currentStatusContextMarkdown(context, exportedAt) {
+  const status = context.currentStatus || {};
+  const draft = status.draftMarkdown?.trim() || "_No current status draft._";
+  const published = status.publishedMarkdown?.trim() || "_No current status has been published._";
+  return [
+    `# MathHive Codex Context: ${markdownInline(context.space?.name || "Theorem Space")}`,
+    "",
+    "> This is a complete snapshot of the context MathHive supplies to Codex when filling the Current Status. Current entity state is authoritative; timestamped history is supporting context.",
+    "",
+    "## Export Metadata",
+    "",
+    `- Exported at: ${exportedAt}`,
+    `- Theorem space ID: \`${context.space?.id || "unknown"}\``,
+    `- Snapshot mode: \`${context.mode}\``,
+    `- Base status draft revision: ${context.baseDraftRevision}`,
+    "",
+    "## AI Task",
+    "",
+    ...context.writingRequirements.map((item) => `- ${markdownInline(item)}`),
+    "",
+    "## Current Status",
+    "",
+    "### Draft",
+    "",
+    draft,
+    "",
+    "### Published",
+    "",
+    published,
+    "",
+    "## Complete Codex Context Payload",
+    "",
+    "> This JSON object is the single canonical representation of the workspace context. It includes members, results and proofs, tasks, graph edges, revisions, reviews, comments, suggestions, status history, link syntax, and compact timestamped history.",
+    "",
+    indentedJson(context),
+    ""
+  ].join("\n");
+}
 
 export class StoreError extends Error {
   constructor(code, message, status = 400) {
@@ -67,9 +111,9 @@ export class MathHiveStore extends EventEmitter {
   }
 
   #normalizeData() {
-    const arrays = ["profiles", "sessions", "spaces", "memberships", "tasks", "results", "revisions", "draftFeedback", "edges", "reviews", "comments", "suggestions", "notifications", "activity", "workQueue"];
+    const arrays = ["profiles", "sessions", "spaces", "memberships", "tasks", "results", "revisions", "draftFeedback", "edges", "reviews", "comments", "suggestions", "currentStatuses", "statusHistory", "statusSuggestions", "notifications", "activity", "workQueue"];
     for (const key of arrays) this.data[key] ||= [];
-    this.data.schemaVersion = 2;
+    this.data.schemaVersion = 3;
     this.data.storeRevision ||= 0;
     this.data.agentStatus ||= { state: "offline", currentWorkType: null, updatedAt: now() };
     for (const space of this.data.spaces) {
@@ -123,6 +167,25 @@ export class MathHiveStore extends EventEmitter {
       task.pendingVolunteerIds ||= [];
       task.invitedProfileIds ||= [];
       task.blockedReason ??= "";
+    }
+    for (const status of this.data.currentStatuses) {
+      status.publishedMarkdown ??= "";
+      status.draftMarkdown ??= status.publishedMarkdown;
+      status.draftRevision ??= status.publishedMarkdown ? 1 : 0;
+      status.version ??= 0;
+      status.publishedAt ??= null;
+      status.publishedBy ??= null;
+      status.updatedAt ??= status.publishedAt || now();
+      status.updatedBy ??= status.publishedBy || "seed";
+      status.codexState ??= null;
+      status.codexRequestedAt ??= null;
+      status.draftSourceRefs ||= [];
+      status.publishedSourceRefs ||= [];
+      status.codexAssisted ??= false;
+    }
+    for (const suggestion of this.data.statusSuggestions) {
+      suggestion.status ||= "open";
+      suggestion.sourceRefs ||= [];
     }
   }
 
@@ -214,6 +277,32 @@ export class MathHiveStore extends EventEmitter {
 
   #isTaskParticipant(task, profileId) {
     return task.primaryContributorId === profileId || task.collaboratorIds.includes(profileId);
+  }
+
+  #currentStatus(data, spaceId) {
+    return data.currentStatuses.find((item) => item.spaceId === spaceId) || null;
+  }
+
+  #ensureCurrentStatus(data, spaceId, actorId) {
+    let status = this.#currentStatus(data, spaceId);
+    if (status) return status;
+    const createdAt = now();
+    status = {
+      id: randomUUID(), spaceId, publishedMarkdown: "", draftMarkdown: "", draftRevision: 0, version: 0,
+      publishedAt: null, publishedBy: null, updatedAt: createdAt, updatedBy: actorId,
+      codexState: null, codexRequestedAt: null, draftSourceRefs: [], publishedSourceRefs: [], codexAssisted: false
+    };
+    data.currentStatuses.push(status);
+    return status;
+  }
+
+  #statusView(status, includeDraft = false) {
+    if (!status) return null;
+    if (includeDraft) return clone(status);
+    return {
+      id: status.id, spaceId: status.spaceId, publishedMarkdown: status.publishedMarkdown,
+      version: status.version, publishedAt: status.publishedAt, publishedBy: status.publishedBy
+    };
   }
 
   async join({ inviteSlug, displayName, pin, color }) {
@@ -398,6 +487,140 @@ export class MathHiveStore extends EventEmitter {
     });
   }
 
+  async updateCurrentStatusDraft(token, spaceId, input) {
+    const { profile } = this.requireSession(token);
+    const markdown = String(input.markdown ?? "");
+    if (markdown.length > 50_000) throw new StoreError("status_too_long", "Keep the current status under 50,000 characters.");
+    return this.mutate((data) => {
+      const space = data.spaces.find((item) => item.id === spaceId);
+      if (!space) throw new StoreError("space_not_found", "Theorem space not found.", 404);
+      this.#requireLead(data, space.id, profile.id);
+      const status = this.#ensureCurrentStatus(data, space.id, profile.id);
+      if (input.baseDraftRevision !== undefined && Number(input.baseDraftRevision) !== status.draftRevision) {
+        throw new StoreError("status_revision_mismatch", "The current status draft changed. Reload it before saving.", 409);
+      }
+      if (status.draftMarkdown === markdown) return { result: status, events: [] };
+      status.draftMarkdown = markdown;
+      status.draftRevision += 1;
+      status.updatedAt = now();
+      status.updatedBy = profile.id;
+      status.codexAssisted = false;
+      status.draftSourceRefs = [];
+      for (const suggestion of data.statusSuggestions) {
+        if (suggestion.statusId === status.id && suggestion.status === "open") suggestion.status = "stale";
+      }
+      return {
+        result: status,
+        events: [{ type: "entity.upsert", entityType: "current_status", entity: clone(status), spaceId: space.id, audienceUserIds: [profile.id] }]
+      };
+    });
+  }
+
+  async requestCurrentStatusAssistance(token, spaceId, mode) {
+    const { profile } = this.requireSession(token);
+    if (!["fill", "review"].includes(mode)) throw new StoreError("invalid_status_assistance", "Choose Fill with Codex or Ask Codex.");
+    return this.mutate((data) => {
+      const space = data.spaces.find((item) => item.id === spaceId);
+      if (!space) throw new StoreError("space_not_found", "Theorem space not found.", 404);
+      this.#requireLead(data, space.id, profile.id);
+      const status = this.#ensureCurrentStatus(data, space.id, profile.id);
+      if (mode === "review" && !status.draftMarkdown.trim()) throw new StoreError("empty_status", "Write a current status before asking Codex to review it.");
+      if (status.codexState) throw new StoreError("status_codex_busy", "Codex is already working on this current status.", 409);
+      const type = mode === "fill" ? "fill_current_status" : "review_current_status";
+      const work = this.#queue(data, {
+        type, spaceId: space.id, entityType: "current_status", entityId: status.id,
+        targetRevision: String(status.draftRevision), payload: { requestedBy: profile.id }, manual: true
+      });
+      status.codexState = mode === "fill" ? "drafting" : "reviewing";
+      status.codexRequestedAt = now();
+      status.updatedAt = now();
+      return {
+        result: { status, work },
+        events: [
+          { type: "entity.upsert", entityType: "current_status", entity: clone(status), spaceId: space.id, audienceUserIds: [profile.id] },
+          { type: "queue.changed", spaceId: space.id, pendingCount: this.pendingWorkCount(data) }
+        ]
+      };
+    });
+  }
+
+  async publishCurrentStatus(token, spaceId, input = {}) {
+    const { profile } = this.requireSession(token);
+    return this.mutate((data) => {
+      const space = data.spaces.find((item) => item.id === spaceId);
+      if (!space) throw new StoreError("space_not_found", "Theorem space not found.", 404);
+      this.#requireLead(data, space.id, profile.id);
+      const status = this.#currentStatus(data, space.id);
+      if (!status || !status.draftMarkdown.trim()) throw new StoreError("empty_status", "Add a current status before publishing it.");
+      if (input.baseDraftRevision !== undefined && Number(input.baseDraftRevision) !== status.draftRevision) {
+        throw new StoreError("status_revision_mismatch", "The current status draft changed. Reload it before publishing.", 409);
+      }
+      const publishedAt = now();
+      status.version += 1;
+      status.publishedMarkdown = status.draftMarkdown;
+      status.publishedSourceRefs = clone(status.draftSourceRefs || []);
+      status.publishedAt = publishedAt;
+      status.publishedBy = profile.id;
+      status.updatedAt = publishedAt;
+      status.updatedBy = profile.id;
+      status.codexState = null;
+      status.codexRequestedAt = null;
+      const history = {
+        id: randomUUID(), statusId: status.id, spaceId: space.id, version: status.version,
+        markdown: status.publishedMarkdown, sourceRefs: clone(status.publishedSourceRefs),
+        codexAssisted: Boolean(status.codexAssisted), publishedAt, publishedBy: profile.id
+      };
+      data.statusHistory.push(history);
+      status.codexAssisted = false;
+      for (const suggestion of data.statusSuggestions) {
+        if (suggestion.statusId === status.id && suggestion.status === "open") suggestion.status = "stale";
+      }
+      const activity = this.#activity(data, { spaceId: space.id, actorId: profile.id, action: "current_status.published", entityType: "current_status", entityId: status.id, summary: `${profile.displayName} published current status v${status.version}.` });
+      const events = [
+        { type: "entity.upsert", entityType: "current_status", entity: this.#statusView(status, false), spaceId: space.id },
+        { type: "entity.upsert", entityType: "current_status", entity: clone(status), spaceId: space.id, audienceUserIds: [profile.id] },
+        { type: "entity.upsert", entityType: "status_history", entity: history, spaceId: space.id },
+        { type: "activity.new", entity: activity, spaceId: space.id }
+      ];
+      const memberIds = data.memberships.filter((item) => item.spaceId === space.id && item.profileId !== profile.id).map((item) => item.profileId);
+      for (const userId of memberIds) {
+        const notification = this.#notification(data, {
+          spaceId: space.id, userId, type: "current_status_published", title: "Current status updated",
+          body: `${profile.displayName} published version ${status.version} for ${space.name}.`, entityType: "current_status", entityId: status.id,
+          dedupeKey: `current-status-published:${status.id}:${status.version}:${userId}`, createdBy: profile.id
+        });
+        events.push({ type: "notification.new", notification, spaceId: space.id, audienceUserIds: [userId] });
+      }
+      return { result: { status, history }, events };
+    });
+  }
+
+  async respondCurrentStatusSuggestion(token, suggestionId, accept) {
+    const { profile } = this.requireSession(token);
+    return this.mutate((data) => {
+      const suggestion = data.statusSuggestions.find((item) => item.id === suggestionId && item.status === "open");
+      if (!suggestion) throw new StoreError("status_suggestion_not_found", "This Codex suggestion is no longer available.", 404);
+      this.#requireLead(data, suggestion.spaceId, profile.id);
+      const status = data.currentStatuses.find((item) => item.id === suggestion.statusId);
+      if (!status) throw new StoreError("status_not_found", "Current status not found.", 404);
+      if (accept && suggestion.baseDraftRevision !== status.draftRevision) throw new StoreError("status_suggestion_stale", "The draft changed after Codex prepared this suggestion.", 409);
+      suggestion.status = accept ? "applied" : "dismissed";
+      suggestion.actedBy = profile.id;
+      suggestion.actedAt = now();
+      const events = [{ type: "entity.upsert", entityType: "status_suggestion", entity: clone(suggestion), spaceId: suggestion.spaceId, audienceUserIds: [profile.id] }];
+      if (accept) {
+        status.draftMarkdown = suggestion.proposedMarkdown;
+        status.draftRevision += 1;
+        status.draftSourceRefs = clone(suggestion.sourceRefs || []);
+        status.codexAssisted = true;
+        status.updatedAt = now();
+        status.updatedBy = profile.id;
+        events.push({ type: "entity.upsert", entityType: "current_status", entity: clone(status), spaceId: suggestion.spaceId, audienceUserIds: [profile.id] });
+      }
+      return { result: { suggestion, status }, events };
+    });
+  }
+
   bootstrap({ token, spaceId }) {
     const { profile } = this.requireSession(token);
     const space = this.getSpace(spaceId || profile.activeSpaceId) || this.data.spaces[0];
@@ -405,6 +628,7 @@ export class MathHiveStore extends EventEmitter {
     if (!currentMembership) throw new StoreError("not_a_member", "Join this theorem space before continuing.", 403);
     const resultIds = new Set(this.data.results.filter((item) => item.spaceId === space.id).map((item) => item.id));
     const visibleNotifications = this.data.notifications.filter((item) => item.spaceId === space.id && (!item.userId || item.userId === profile.id));
+    const currentStatus = this.#currentStatus(this.data, space.id);
     return {
       storeRevision: this.data.storeRevision,
       profile: this.publicProfile(profile),
@@ -422,6 +646,9 @@ export class MathHiveStore extends EventEmitter {
       comments: clone(this.data.comments.filter((item) => resultIds.has(item.resultId))),
       draftFeedback: clone(this.data.draftFeedback.filter((item) => resultIds.has(item.resultId))),
       suggestions: clone(this.data.suggestions.filter((item) => item.spaceId === space.id && item.status === "open" && (!item.audienceUserIds?.length || item.audienceUserIds.includes(profile.id)))),
+      currentStatus: this.#statusView(currentStatus, currentMembership.role === "lead"),
+      statusHistory: clone(this.data.statusHistory.filter((item) => item.spaceId === space.id).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)).slice(0, 20)),
+      statusSuggestions: currentMembership.role === "lead" ? clone(this.data.statusSuggestions.filter((item) => item.spaceId === space.id && item.status === "open")) : [],
       notifications: clone(visibleNotifications.sort((a, b) => b.createdAt.localeCompare(a.createdAt))),
       activity: clone(this.data.activity.filter((item) => item.spaceId === space.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100)),
       agentStatus: clone(this.data.agentStatus),
@@ -1071,6 +1298,13 @@ export class MathHiveStore extends EventEmitter {
       item.error = "Agent lease expired";
       item.claimedAt = null;
       item.leaseUntil = null;
+      if (item.status === "failed" && ["fill_current_status", "review_current_status"].includes(item.type)) {
+        const status = data.currentStatuses.find((entry) => entry.id === item.entityId);
+        if (status) {
+          status.codexState = null;
+          status.codexRequestedAt = null;
+        }
+      }
     }
   }
 
@@ -1083,15 +1317,101 @@ export class MathHiveStore extends EventEmitter {
       item.status = "claimed";
       item.claimedAt = now();
       item.leaseUntil = new Date(Date.now() + 5 * 60_000).toISOString();
-      data.agentStatus = { state: item.type === "suggest_integrations" ? "integrating" : "reviewing", currentWorkType: item.type, updatedAt: now() };
+      const state = item.type === "suggest_integrations" ? "integrating" : ["fill_current_status", "review_current_status"].includes(item.type) ? "summarizing" : "reviewing";
+      data.agentStatus = { state, currentWorkType: item.type, updatedAt: now() };
       return { result: { empty: false, work: item, agentStatus: data.agentStatus }, events: [{ type: "agent.status", state: data.agentStatus }] };
     });
+  }
+
+  #buildCurrentStatusContext(work, status) {
+    const space = this.getSpace(work.spaceId);
+    const results = this.data.results.filter((item) => item.spaceId === work.spaceId);
+    const resultIds = new Set(results.map((item) => item.id));
+    const taskIds = new Set(this.data.tasks.filter((item) => item.spaceId === work.spaceId).map((item) => item.id));
+    const resultTitles = new Map(results.map((item) => [item.id, item.title]));
+    const taskTitles = new Map(this.data.tasks.filter((item) => item.spaceId === work.spaceId).map((item) => [item.id, item.title]));
+    const timestampedHistory = [
+      ...this.data.activity.filter((item) => item.spaceId === work.spaceId).map((item) => ({
+        at: item.createdAt, type: "activity", summary: item.summary, entityType: item.entityType, entityId: item.entityId
+      })),
+      ...this.data.revisions.filter((item) => resultIds.has(item.resultId)).map((item) => ({
+        at: item.createdAt, type: "result_revision", summary: `${resultTitles.get(item.resultId) || "Result"} revision ${item.revisionNumber} was ${String(item.reason || item.status).replaceAll("_", " ")}.`, entityType: "result", entityId: item.resultId, revisionId: item.id
+      })),
+      ...this.data.statusHistory.filter((item) => item.spaceId === work.spaceId).map((item) => ({
+        at: item.publishedAt, type: "status_publication", summary: `Current status v${item.version} was published.`, entityType: "current_status", entityId: item.statusId, historyId: item.id
+      })),
+      ...this.data.tasks.filter((item) => item.spaceId === work.spaceId).map((item) => ({
+        at: item.updatedAt, type: "task_state", summary: `${taskTitles.get(item.id)} is ${item.status.replaceAll("_", " ")}${item.blockedReason ? `: ${item.blockedReason}` : "."}`, entityType: "task", entityId: item.id
+      }))
+    ].filter((item) => item.at).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 500);
+    const members = this.data.memberships.filter((item) => item.spaceId === work.spaceId).map((membership) => ({
+      ...clone(membership), profile: this.publicProfile(this.data.profiles.find((item) => item.id === membership.profileId))
+    }));
+    return clone({
+      work,
+      mode: work.type === "fill_current_status" ? "fill" : "review",
+      baseDraftRevision: Number(work.targetRevision),
+      space,
+      currentStatus: status,
+      rootProblem: space?.rootResultId ? this.getResult(space.rootResultId) : null,
+      members,
+      tasks: this.data.tasks.filter((item) => item.spaceId === work.spaceId && item.approvalState !== "declined"),
+      results,
+      edges: this.data.edges.filter((item) => item.spaceId === work.spaceId),
+      revisions: this.data.revisions.filter((item) => resultIds.has(item.resultId)),
+      reviews: this.data.reviews.filter((item) => resultIds.has(item.resultId)),
+      comments: this.data.comments.filter((item) => resultIds.has(item.resultId)),
+      suggestions: this.data.suggestions.filter((item) => item.spaceId === work.spaceId),
+      statusHistory: this.data.statusHistory.filter((item) => item.spaceId === work.spaceId).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)),
+      timestampedHistory,
+      linkSyntax: {
+        results: results.map((item) => ({ id: item.id, title: item.title, href: `#result:${item.id}` })),
+        tasks: this.data.tasks.filter((item) => taskIds.has(item.id)).map((item) => ({ id: item.id, title: item.title, href: `#task:${item.id}` }))
+      },
+      writingRequirements: [
+        "Return one self-contained Markdown note with accurate LaTeX using $...$ or $$...$$.",
+        "Use the supplied #result:<id> and #task:<id> links whenever naming specific workspace work.",
+        "Distinguish drafts, conjectures, Codex-reviewed results, proved or refuted conjectures, and imported work exactly as recorded.",
+        "Cover the current mathematical direction, meaningful progress, blockers, and immediate priorities without ranking contributors.",
+        "Treat the timestamped history as context; current entity state is authoritative when older history disagrees."
+      ]
+    });
+  }
+
+  #statusWorkContext(work) {
+    const status = this.data.currentStatuses.find((item) => item.id === work.entityId);
+    if (!status) throw new StoreError("status_not_found", "Current status not found.", 404);
+    return this.#buildCurrentStatusContext(work, status);
+  }
+
+  exportCurrentStatusContext(token, spaceId) {
+    const { profile } = this.requireSession(token);
+    const space = this.getSpace(spaceId);
+    if (!space) throw new StoreError("space_not_found", "Theorem space not found.", 404);
+    this.#requireMembership(this.data, space.id, profile.id);
+    const exportedAt = now();
+    const status = this.#currentStatus(this.data, space.id) || {
+      id: `current-status-${space.id}`, spaceId: space.id, publishedMarkdown: "", draftMarkdown: "", draftRevision: 0, version: 0,
+      publishedAt: null, publishedBy: null, updatedAt: exportedAt, updatedBy: profile.id, codexState: null, codexRequestedAt: null,
+      draftSourceRefs: [], publishedSourceRefs: [], codexAssisted: false
+    };
+    const work = {
+      id: `context-export-${space.id}`, type: "fill_current_status", priority: PRIORITY.fill_current_status, spaceId: space.id,
+      entityType: "current_status", entityId: status.id, targetRevision: String(status.draftRevision), payload: { requestedBy: profile.id },
+      status: "snapshot", attempts: 0, claimedAt: null, leaseUntil: null, completedAt: null, error: null, createdAt: exportedAt
+    };
+    const context = this.#buildCurrentStatusContext(work, status);
+    return {
+      filename: `mathhive-${slugify(space.name)}-codex-context-${exportedAt.slice(0, 19).replaceAll(":", "-")}.md`,
+      markdown: currentStatusContextMarkdown(context, exportedAt)
+    };
   }
 
   getWorkContext(workId) {
     const work = this.data.workQueue.find((item) => item.id === workId);
     if (!work || work.status !== "claimed") throw new StoreError("work_not_claimed", "Work is not currently claimed.", 409);
     if (new Date(work.leaseUntil).getTime() < Date.now()) throw new StoreError("lease_expired", "Work lease expired.", 409);
+    if (["fill_current_status", "review_current_status"].includes(work.type)) return this.#statusWorkContext(work);
     const result = this.getResult(work.entityId);
     if (!result) throw new StoreError("result_not_found", "Result not found.", 404);
     const resultIds = new Set([result.id, ...(result.dependencyIds || [])]);
@@ -1160,6 +1480,105 @@ export class MathHiveStore extends EventEmitter {
     work.completedAt = now();
     work.leaseUntil = null;
     data.agentStatus = { state: "idle", currentWorkType: null, updatedAt: now() };
+  }
+
+  #statusSourceRefs(data, spaceId, refs = []) {
+    const belongsToSpace = (type, id) => {
+      if (type === "result") return data.results.some((item) => item.id === id && item.spaceId === spaceId);
+      if (type === "task") return data.tasks.some((item) => item.id === id && item.spaceId === spaceId);
+      if (type === "edge") return data.edges.some((item) => item.id === id && item.spaceId === spaceId);
+      if (type === "revision") return data.revisions.some((item) => item.id === id && data.results.some((result) => result.id === item.resultId && result.spaceId === spaceId));
+      if (type === "review") return data.reviews.some((item) => item.id === id && data.results.some((result) => result.id === item.resultId && result.spaceId === spaceId));
+      if (type === "current_status") return data.currentStatuses.some((item) => item.id === id && item.spaceId === spaceId);
+      return false;
+    };
+    return refs.slice(0, 100).map((ref) => ({ entityType: String(ref.entityType || ""), entityId: String(ref.entityId || ""), label: String(ref.label || "").slice(0, 160) })).filter((ref) => belongsToSpace(ref.entityType, ref.entityId));
+  }
+
+  async submitCurrentStatusDraft(input) {
+    return this.mutate((data) => {
+      const work = this.#requireClaimed(data, input.workId, "fill_current_status");
+      const status = data.currentStatuses.find((item) => item.id === work.entityId);
+      if (!status) throw new StoreError("status_not_found", "Current status not found.", 404);
+      if (Number(work.targetRevision) !== Number(input.baseDraftRevision)) throw new StoreError("status_revision_mismatch", "Codex must return the requested status draft revision.", 409);
+      const proposedMarkdown = String(input.markdown || "");
+      if (!proposedMarkdown.trim() || proposedMarkdown.length > 50_000) throw new StoreError("invalid_status_markdown", "Codex must return a nonempty current status under 50,000 characters.");
+      const sourceRefs = this.#statusSourceRefs(data, status.spaceId, input.sourceRefs || []);
+      const leadId = this.leadMembership(status.spaceId, data)?.profileId;
+      if (!leadId) throw new StoreError("lead_not_found", "This theorem space has no lead.", 409);
+      const stale = status.draftRevision !== Number(input.baseDraftRevision);
+      let suggestion = null;
+      if (stale) {
+        for (const item of data.statusSuggestions) if (item.statusId === status.id && item.status === "open") item.status = "stale";
+        suggestion = {
+          id: randomUUID(), statusId: status.id, spaceId: status.spaceId, type: "generated_draft",
+          baseDraftRevision: status.draftRevision, proposedMarkdown, rationale: String(input.summary || "Codex prepared a complete status draft."),
+          sourceRefs, status: "open", createdBy: "codex", createdAt: now(), actedBy: null, actedAt: null
+        };
+        data.statusSuggestions.push(suggestion);
+      } else {
+        status.draftMarkdown = proposedMarkdown;
+        status.draftRevision += 1;
+        status.draftSourceRefs = sourceRefs;
+        status.codexAssisted = true;
+        status.updatedAt = now();
+        status.updatedBy = "codex";
+      }
+      status.codexState = null;
+      status.codexRequestedAt = null;
+      const notification = this.#notification(data, {
+        spaceId: status.spaceId, userId: leadId, type: "current_status_draft", title: input.notification?.title || "Current status draft ready",
+        body: input.notification?.body || (stale ? "Codex prepared a draft after your note changed. Review the proposed version." : "Codex filled the current status draft."),
+        entityType: "current_status", entityId: status.id, dedupeKey: `current-status-fill:${work.id}`
+      });
+      this.#complete(data, work);
+      const events = [
+        { type: "entity.upsert", entityType: "current_status", entity: clone(status), spaceId: status.spaceId, audienceUserIds: [leadId] },
+        { type: "notification.new", notification, spaceId: status.spaceId, audienceUserIds: [leadId] },
+        { type: "queue.changed", spaceId: status.spaceId, pendingCount: this.pendingWorkCount(data) },
+        { type: "agent.status", state: data.agentStatus }
+      ];
+      if (suggestion) events.splice(1, 0, { type: "entity.upsert", entityType: "status_suggestion", entity: suggestion, spaceId: status.spaceId, audienceUserIds: [leadId] });
+      return { result: { status, suggestion, stale }, events };
+    });
+  }
+
+  async submitCurrentStatusReview(input) {
+    return this.mutate((data) => {
+      const work = this.#requireClaimed(data, input.workId, "review_current_status");
+      const status = data.currentStatuses.find((item) => item.id === work.entityId);
+      if (!status) throw new StoreError("status_not_found", "Current status not found.", 404);
+      if (Number(work.targetRevision) !== Number(input.baseDraftRevision)) throw new StoreError("status_revision_mismatch", "Codex must review the requested status draft revision.", 409);
+      const proposedMarkdown = String(input.proposedMarkdown || "");
+      if (!proposedMarkdown.trim() || proposedMarkdown.length > 50_000) throw new StoreError("invalid_status_markdown", "Codex must return a nonempty proposed status under 50,000 characters.");
+      const leadId = this.leadMembership(status.spaceId, data)?.profileId;
+      if (!leadId) throw new StoreError("lead_not_found", "This theorem space has no lead.", 409);
+      for (const item of data.statusSuggestions) if (item.statusId === status.id && item.status === "open") item.status = "stale";
+      const stale = status.draftRevision !== Number(input.baseDraftRevision);
+      const suggestion = {
+        id: randomUUID(), statusId: status.id, spaceId: status.spaceId, type: "reviewed_revision",
+        baseDraftRevision: Number(input.baseDraftRevision), proposedMarkdown, rationale: String(input.rationale || "Codex suggested a revised current status."),
+        sourceRefs: this.#statusSourceRefs(data, status.spaceId, input.sourceRefs || []), status: stale ? "stale" : "open",
+        createdBy: "codex", createdAt: now(), actedBy: null, actedAt: null
+      };
+      data.statusSuggestions.push(suggestion);
+      status.codexState = null;
+      status.codexRequestedAt = null;
+      const notification = this.#notification(data, {
+        spaceId: status.spaceId, userId: leadId, type: "current_status_review", title: input.notification?.title || "Codex status suggestion ready",
+        body: input.notification?.body || (stale ? "The status changed while Codex reviewed it. Ask Codex again for a current suggestion." : "Codex proposed one revised version of the current status."),
+        entityType: "current_status", entityId: status.id, dedupeKey: `current-status-review:${work.id}`
+      });
+      this.#complete(data, work);
+      const events = [
+        { type: "entity.upsert", entityType: "current_status", entity: clone(status), spaceId: status.spaceId, audienceUserIds: [leadId] },
+        { type: "notification.new", notification, spaceId: status.spaceId, audienceUserIds: [leadId] },
+        { type: "queue.changed", spaceId: status.spaceId, pendingCount: this.pendingWorkCount(data) },
+        { type: "agent.status", state: data.agentStatus }
+      ];
+      if (!stale) events.splice(1, 0, { type: "entity.upsert", entityType: "status_suggestion", entity: suggestion, spaceId: status.spaceId, audienceUserIds: [leadId] });
+      return { result: { status, suggestion, stale }, events };
+    });
   }
 
   async submitDraftReview(input) {
@@ -1379,6 +1798,19 @@ export class MathHiveStore extends EventEmitter {
       data.agentStatus = { state: work.status === "failed" ? "failed" : "idle", currentWorkType: null, updatedAt: now() };
       const events = [{ type: "agent.status", state: data.agentStatus }, { type: "queue.changed", spaceId: work.spaceId, pendingCount: this.pendingWorkCount(data) }];
       if (work.status === "failed") {
+        if (["fill_current_status", "review_current_status"].includes(work.type)) {
+          const status = data.currentStatuses.find((item) => item.id === work.entityId);
+          const leadId = this.leadMembership(work.spaceId, data)?.profileId;
+          if (status) {
+            status.codexState = null;
+            status.codexRequestedAt = null;
+            events.push({ type: "entity.upsert", entityType: "current_status", entity: clone(status), spaceId: work.spaceId, audienceUserIds: leadId ? [leadId] : [] });
+          }
+          if (leadId) {
+            const notification = this.#notification(data, { spaceId: work.spaceId, userId: leadId, type: "agent_failed", title: "Codex could not update current status", body: work.error, entityType: "current_status", entityId: status?.id || work.entityId, dedupeKey: `agent-failed:${work.id}` });
+            events.push({ type: "notification.new", notification, spaceId: work.spaceId, audienceUserIds: [leadId] });
+          }
+        }
         const result = data.results.find((item) => item.id === work.entityId);
         if (result?.createdBy && result.createdBy !== "seed") {
           const notification = this.#notification(data, { spaceId: work.spaceId, userId: result.createdBy, type: "agent_failed", title: "Codex could not finish this review", body: work.error, entityType: "result", entityId: result.id, dedupeKey: `agent-failed:${work.id}` });

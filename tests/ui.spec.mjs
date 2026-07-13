@@ -1,12 +1,14 @@
 import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 async function join(page, name, pin, slug = "spectral-gap") {
   await page.goto(`/join/${slug}`);
+  const expectedSpaceName = await page.locator("#joinSpaceName").textContent();
   await page.getByLabel("Display name").fill(name);
   await page.getByLabel("PIN or small password").fill(pin);
   await page.getByRole("button", { name: "Join workspace" }).click();
   await expect(page.locator("#joinGate")).toBeHidden();
-  await expect(page.locator("#workspaceTitle")).toHaveText("Spectral Gap Program");
+  await expect(page.locator("#workspaceTitle")).toHaveText(expectedSpaceName);
 }
 
 async function createSpace(page, name, rootTitle = "Root problem", rootStatement = "x=x") {
@@ -163,6 +165,17 @@ Is it true that for all $m\geq n+k$\[M(n,k) \neq M(m,k)?\]`);
       notifications: []
     }});
     await ada.locator("#closeEditor").click();
+    await ada.getByRole("button", { name: "Notices", exact: true }).click();
+    const validationNotice = ada.locator(".notification-item").filter({ hasText: "Result validated" });
+    await expect(validationNotice).toHaveClass(/unread/);
+    await expect(validationNotice.getByText("Unread", { exact: true })).toBeVisible();
+    await ada.screenshot({ path: testInfo.outputPath("notification-unread.png"), fullPage: true });
+    await validationNotice.getByRole("button", { name: "Mark Result validated as read" }).click();
+    await expect(validationNotice).toHaveClass(/read/);
+    await expect(validationNotice.getByText("Read", { exact: true })).toBeVisible();
+    await expect(validationNotice.getByRole("button", { name: /Mark .* as read/ })).toHaveCount(0);
+    await ada.screenshot({ path: testInfo.outputPath("notification-read.png"), fullPage: true });
+    await ada.getByRole("button", { name: "Codex", exact: true }).click();
     await expect(ada.locator("#suggestionsList")).toContainText("Connect the validated equality result");
     await ada.getByRole("button", { name: "Integrate" }).click();
     await expect(ada.locator("#suggestionsList")).not.toContainText("Connect the validated equality result");
@@ -313,6 +326,120 @@ test("lead publishes official work and an accepted volunteer contributes within 
     await expect(proposal).toContainText("Proposed");
     await proposal.getByRole("button", { name: "Approve" }).click();
     await expect(contributor.locator(".task-row").filter({ hasText: "Check the negative case" })).toContainText("Open");
+  } finally {
+    await leadContext.close();
+    await contributorContext.close();
+  }
+});
+
+test("lead fills, reviews, publishes, and shares current status through Codex notifications", async ({ browser, request }) => {
+  const leadContext = await browser.newContext();
+  const contributorContext = await browser.newContext();
+  await leadContext.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4174" });
+  const lead = await leadContext.newPage();
+  const contributor = await contributorContext.newPage();
+  try {
+    await join(lead, "Current Status Lead", "8201");
+    const created = await createSpace(lead, "Current Status Program", "Status root conjecture", String.raw`A \Longrightarrow B`);
+    const leadToken = await lead.evaluate(() => sessionStorage.getItem("mathhive.token"));
+    const authHeaders = { Authorization: `Bearer ${leadToken}` };
+    const taskResponse = await request.post("/api/tasks", { headers: authHeaders, data: {
+      spaceId: created.space.id,
+      title: "Establish the first implication",
+      goal: "Prove the first step toward the root conjecture.",
+      priority: "high",
+      targetResultId: created.rootResult.id,
+      expectedRelation: "supports"
+    } });
+    expect(taskResponse.ok()).toBe(true);
+    const task = await taskResponse.json();
+    const initialDraft = `The project is reducing [Status root conjecture](#result:${created.rootResult.id}) to [Establish the first implication](#task:${task.id}).`;
+    const draftResponse = await request.patch(`/api/spaces/${created.space.id}/current-status`, { headers: authHeaders, data: { markdown: initialDraft, baseDraftRevision: 0 } });
+    expect(draftResponse.ok()).toBe(true);
+    const initialStatus = await draftResponse.json();
+    const initialPublish = await request.post(`/api/spaces/${created.space.id}/current-status/publish`, { headers: authHeaders, data: { baseDraftRevision: initialStatus.draftRevision } });
+    expect(initialPublish.ok()).toBe(true);
+
+    await join(contributor, "Current Status Reader", "8202", created.space.inviteSlug);
+    await expect(lead.locator("#currentStatusExcerpt")).toContainText("Status root conjecture");
+    await expect(contributor.locator("#currentStatusActions")).toBeHidden();
+    await lead.getByRole("button", { name: "Edit" }).click();
+    await expect(lead.locator("#currentStatusModal")).toBeVisible();
+    await expect(lead.locator("#statusHistoryList")).toContainText("v1");
+
+    await lead.locator("#currentStatusModal").getByRole("button", { name: "Fill with Codex" }).click();
+    const fillWork = await (await request.post("/api/internal/work/next", { data: {} })).json();
+    expect(fillWork.work.type).toBe("fill_current_status");
+    const fillContext = await (await request.get(`/api/internal/work/${fillWork.work.id}/context`)).json();
+    expect(fillContext.results.some((item) => item.id === created.rootResult.id && item.statementLatex === "A \\Longrightarrow B")).toBe(true);
+    expect(fillContext.tasks.some((item) => item.id === task.id && item.goal.includes("first step"))).toBe(true);
+    expect(fillContext.timestampedHistory.some((item) => item.type === "status_publication")).toBe(true);
+    const codexDraft = `The active route is [Status root conjecture](#result:${created.rootResult.id}), whose target is $A \\Longrightarrow B$. [Establish the first implication](#task:${task.id}) remains the immediate open task.`;
+    await request.post(`/api/internal/work/${fillWork.work.id}/current-status-draft`, { data: {
+      baseDraftRevision: fillContext.baseDraftRevision, markdown: codexDraft,
+      summary: "Focused the status on the exact root conjecture and open task.",
+      sourceRefs: [{ entityType: "result", entityId: created.rootResult.id, label: "Root conjecture" }, { entityType: "task", entityId: task.id, label: "Open proof task" }],
+      notification: { title: "Current status draft ready", body: "Codex filled the note from the complete workspace context." }
+    } });
+    await expect(lead.locator("#currentStatusMarkdown")).toHaveValue(codexDraft);
+    await expect(lead.locator("#currentStatusPreview .katex")).toBeVisible();
+    await expect(lead.locator("#notificationsList")).toContainText("Current status draft ready");
+
+    const manualDraft = "The team is focused on the first implication, but the current note needs a more precise mathematical description.";
+    await lead.locator("#currentStatusMarkdown").fill(manualDraft);
+    await expect(lead.locator("#currentStatusSaveState")).toHaveText("Saved");
+    await lead.getByRole("button", { name: "Close current status" }).click();
+    await expect(lead.getByRole("button", { name: "Copy context" })).toBeVisible();
+    await expect(contributor.getByRole("button", { name: "Export .md" })).toBeVisible();
+    const downloadPromise = lead.waitForEvent("download");
+    await lead.getByRole("button", { name: "Export .md" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/^mathhive-current-status-program-codex-context-.+\.md$/);
+    const exportedMarkdown = await readFile(await download.path(), "utf8");
+    expect(exportedMarkdown).toContain("# MathHive Codex Context: Current Status Program");
+    expect(exportedMarkdown).toContain(manualDraft);
+    expect(exportedMarkdown).toContain(created.rootResult.id);
+    expect(exportedMarkdown).toContain(task.id);
+    expect(exportedMarkdown).toContain("## Complete Codex Context Payload");
+    await lead.getByRole("button", { name: "Copy context" }).click();
+    await expect(lead.locator("#toastRegion")).toContainText("Codex context copied");
+    const clipboardContext = await lead.evaluate(() => navigator.clipboard.readText());
+    expect(clipboardContext).toContain(manualDraft);
+    expect(clipboardContext).toContain("## Complete Codex Context Payload");
+    await lead.getByRole("button", { name: "Edit" }).click();
+    await lead.getByRole("button", { name: "Ask Codex" }).click();
+    const reviewWork = await (await request.post("/api/internal/work/next", { data: {} })).json();
+    expect(reviewWork.work.type).toBe("review_current_status");
+    const reviewContext = await (await request.get(`/api/internal/work/${reviewWork.work.id}/context`)).json();
+    expect(reviewContext.currentStatus.draftMarkdown).toBe(manualDraft);
+    const proposed = `${manualDraft}\n\nMore precisely, [Status root conjecture](#result:${created.rootResult.id}) is unresolved and its [proof task](#task:${task.id}) remains open.`;
+    await request.post(`/api/internal/work/${reviewWork.work.id}/current-status-review`, { data: {
+      baseDraftRevision: reviewContext.baseDraftRevision, proposedMarkdown: proposed,
+      rationale: "The revised note names the exact unresolved result and preserves the task's open state.",
+      sourceRefs: [{ entityType: "result", entityId: created.rootResult.id, label: "Root conjecture" }],
+      notification: { title: "Codex status suggestion ready", body: "Codex clarified the unresolved result and task." }
+    } });
+    await expect(lead.locator("#statusSuggestion")).toBeVisible();
+    await expect(lead.locator("#statusSuggestionRationale")).toContainText("exact unresolved result");
+    await lead.getByRole("button", { name: "Use suggestion" }).click();
+    await expect(lead.locator("#currentStatusMarkdown")).toHaveValue(proposed);
+    await lead.getByRole("button", { name: "Publish" }).click();
+    await expect(lead.locator("#currentStatusVersion")).toHaveText("v2");
+    await expect(contributor.locator("#currentStatusExcerpt")).toContainText("unresolved");
+    await expect(contributor.locator("#notificationsList")).toContainText("Current status updated");
+    const contributorDownloadPromise = contributor.waitForEvent("download");
+    await contributor.getByRole("button", { name: "Export .md" }).click();
+    const contributorDownload = await contributorDownloadPromise;
+    const contributorMarkdown = await readFile(await contributorDownload.path(), "utf8");
+    expect(contributorMarkdown).toContain(proposed);
+
+    await contributor.locator("#openCurrentStatus").click();
+    await expect(contributor.locator("#statusWriteField")).toBeHidden();
+    await expect(contributor.locator("#currentStatusModal").getByRole("button", { name: /Export/ })).toHaveCount(0);
+    await expect(contributor.locator("#statusHistoryList")).toContainText("v2");
+    await expect(contributor.locator("#statusHistoryList")).toContainText("v1");
+    await contributor.locator(`#currentStatusPreview a[href="#result:${created.rootResult.id}"]`).click();
+    await expect(contributor.locator("#editorHeading")).toHaveText("Status root conjecture");
   } finally {
     await leadContext.close();
     await contributorContext.close();

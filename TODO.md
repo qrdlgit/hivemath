@@ -21,6 +21,12 @@
 - [x] **Contributor focus:** Show each user their claimed work, nearby collaborators, and Codex suggestions relevant to that work.
 - [x] **Coordination notifications:** Notify users about volunteers, assignments, blockers, completed proofs, and newly relevant results without duplicating the activity feed.
 
+## Priority 4: Keep the Program Legible
+
+- [x] **Current status:** Give each theorem space one concise, lead-published Markdown/LaTeX status with compact timestamped history.
+- [x] **Codex-assisted status:** Let the lead either fill the draft from complete workspace context or ask Codex for one revision-safe suggested rewrite delivered through notifications.
+- [x] **Context sharing:** Let every member copy or download the complete Current Status Codex snapshot, including the current draft and publication history, as lossless Markdown.
+
 ## POC Success Path
 
 A lead creates a branch and an open task; a contributor volunteers; the lead accepts; the contributor creates and submits a linked mathematical contribution; Codex validates the contribution and relationship; the task becomes done; the target conjecture and graph update in realtime; and affected users are notified.

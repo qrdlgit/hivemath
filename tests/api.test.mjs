@@ -89,6 +89,11 @@ test("join, author, coach, validate, notify, star, and preserve revision history
     assert.equal(bootstrap.draftFeedback.some((item) => item.resultId === result.id), true);
     assert.equal(bootstrap.revisions.some((item) => item.id === final.submittedRevisionId), true);
     assert.equal(bootstrap.notifications.some((item) => item.type === "validation"), true);
+    const validationNotification = bootstrap.notifications.find((item) => item.type === "validation");
+    assert.equal(validationNotification.readBy.includes(ada.profile.id), false);
+    const [readNotification] = await request(baseUrl, "/api/notifications/read", { token: ada.token, method: "POST", body: { ids: [validationNotification.id] } });
+    assert.equal(readNotification.id, validationNotification.id);
+    assert.equal(readNotification.readBy.includes(ada.profile.id), true);
     claimed = await request(baseUrl, "/api/internal/work/next", { method: "POST", body: {} });
     assert.equal(claimed.work.type, "suggest_integrations");
     const research = await request(baseUrl, `/api/internal/work/${claimed.work.id}/research-context`, { method: "POST", body: { tags: ["equality"] } });
@@ -311,5 +316,109 @@ test("accepted counterexample work verifies refutation and completes its task", 
     assert.equal(final.edges.find((item) => item.id === refutesEdge.id).verificationStatus, "verified");
     assert.equal(final.tasks.find((item) => item.id === task.id).status, "done");
     assert.equal(final.notifications.some((item) => item.type === "validation"), true);
+  });
+});
+
+test("lead drafts, reviews, publishes, and Codex-fills a timestamped current status", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const lead = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Status Lead", pin: "7311" } });
+    const created = await request(baseUrl, "/api/spaces", { token: lead.token, method: "POST", body: {
+      name: "Status Context Program", rootTitle: "Status root conjecture", rootStatement: "A \\Longrightarrow B"
+    } });
+    const contributor = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: created.space.inviteSlug, displayName: "Status Contributor", pin: "7312" } });
+    const task = await request(baseUrl, "/api/tasks", { token: lead.token, method: "POST", body: {
+      spaceId: created.space.id, title: "Establish the first implication", goal: "Prove the first step toward the root conjecture.",
+      priority: "high", targetResultId: created.rootResult.id, expectedRelation: "supports"
+    } });
+    await requestFailure(baseUrl, `/api/spaces/${created.space.id}/current-status`, { token: contributor.token, method: "PATCH", status: 403, body: { markdown: "Unauthorized status", baseDraftRevision: 0 } });
+
+    let status = await request(baseUrl, `/api/spaces/${created.space.id}/current-status`, { token: lead.token, method: "PATCH", body: {
+      markdown: "We are working on the root implication.", baseDraftRevision: 0
+    } });
+    assert.equal(status.draftRevision, 1);
+    await request(baseUrl, `/api/spaces/${created.space.id}/current-status/review`, { token: lead.token, method: "POST", body: {} });
+    let claimed = await request(baseUrl, "/api/internal/work/next", { method: "POST", body: {} });
+    assert.equal(claimed.work.type, "review_current_status");
+    let context = await request(baseUrl, `/api/internal/work/${claimed.work.id}/context`);
+    assert.equal(context.mode, "review");
+    assert.equal(context.currentStatus.draftMarkdown, "We are working on the root implication.");
+    assert.equal(context.results.some((item) => item.id === created.rootResult.id && item.statementLatex === "A \\Longrightarrow B"), true);
+    assert.equal(context.tasks.some((item) => item.id === task.id && item.goal.includes("first step")), true);
+    assert.equal(context.timestampedHistory.every((item) => Boolean(item.at && item.summary)), true);
+    assert.equal(context.linkSyntax.results.some((item) => item.href === `#result:${created.rootResult.id}`), true);
+    assert.equal(context.linkSyntax.tasks.some((item) => item.href === `#task:${task.id}`), true);
+
+    const proposedMarkdown = `The program is reducing [Status root conjecture](#result:${created.rootResult.id}) to [Establish the first implication](#task:${task.id}).\n\nThe current target is $A \\Longrightarrow B$, and the linked task remains open.`;
+    await request(baseUrl, `/api/internal/work/${claimed.work.id}/current-status-review`, { method: "POST", body: {
+      baseDraftRevision: context.baseDraftRevision, proposedMarkdown,
+      rationale: "The revision names the exact root problem and open task and preserves their recorded state.",
+      sourceRefs: [{ entityType: "result", entityId: created.rootResult.id, label: "Root conjecture" }, { entityType: "task", entityId: task.id, label: "Open task" }],
+      notification: { title: "Codex status suggestion ready", body: "Codex linked the status to the root and active task." }
+    } });
+    let leadView = await request(baseUrl, `/api/bootstrap?spaceId=${created.space.id}`, { token: lead.token });
+    assert.equal(leadView.statusSuggestions.length, 1);
+    assert.equal(leadView.notifications.some((item) => item.type === "current_status_review"), true);
+    const applied = await request(baseUrl, `/api/current-status-suggestions/${leadView.statusSuggestions[0].id}/respond`, { token: lead.token, method: "POST", body: { accept: true } });
+    assert.equal(applied.status.draftMarkdown, proposedMarkdown);
+    const firstPublication = await request(baseUrl, `/api/spaces/${created.space.id}/current-status/publish`, { token: lead.token, method: "POST", body: { baseDraftRevision: applied.status.draftRevision } });
+    assert.equal(firstPublication.status.version, 1);
+    assert.equal(firstPublication.history.markdown, proposedMarkdown);
+
+    const exportResponse = await fetch(`${baseUrl}/api/spaces/${created.space.id}/current-status/export`, { headers: { Authorization: `Bearer ${lead.token}` } });
+    assert.equal(exportResponse.status, 200);
+    assert.match(exportResponse.headers.get("content-type"), /^text\/markdown/);
+    assert.match(exportResponse.headers.get("content-disposition"), /^attachment; filename="mathhive-status-context-program-codex-context-.+\.md"$/);
+    const exportedMarkdown = await exportResponse.text();
+    assert.match(exportedMarkdown, /^# MathHive Codex Context: Status Context Program/);
+    assert.match(exportedMarkdown, /## Current Status/);
+    assert.match(exportedMarkdown, /### Draft/);
+    assert.match(exportedMarkdown, /### Published/);
+    assert.match(exportedMarkdown, /## Complete Codex Context Payload/);
+    assert.match(exportedMarkdown, /The current target is \$A \\Longrightarrow B\$/);
+    const payloadMarker = "## Complete Codex Context Payload\n\n";
+    const payloadHeading = exportedMarkdown.lastIndexOf(payloadMarker);
+    const payloadStart = exportedMarkdown.indexOf("\n    {", payloadHeading) + 1;
+    const indentedPayload = exportedMarkdown.slice(payloadStart).trimEnd();
+    const exportedContext = JSON.parse(indentedPayload.split("\n").map((line) => line.slice(4)).join("\n"));
+    assert.equal(exportedContext.currentStatus.draftMarkdown, proposedMarkdown);
+    assert.equal(exportedContext.currentStatus.publishedMarkdown, proposedMarkdown);
+    assert.equal(exportedContext.results.some((item) => item.id === created.rootResult.id && item.statementLatex === "A \\Longrightarrow B"), true);
+    assert.equal(exportedContext.tasks.some((item) => item.id === task.id), true);
+    assert.equal(exportedContext.statusHistory.some((item) => item.id === firstPublication.history.id), true);
+    assert.equal(exportedContext.timestampedHistory.some((item) => item.type === "status_publication"), true);
+    assert.equal(exportedMarkdown.includes("pinHash"), false);
+    const memberExport = await fetch(`${baseUrl}/api/spaces/${created.space.id}/current-status/export`, { headers: { Authorization: `Bearer ${contributor.token}` } });
+    assert.equal(memberExport.status, 200);
+    const memberMarkdown = await memberExport.text();
+    assert.match(memberMarkdown, /## Current Status/);
+    assert.match(memberMarkdown, /The current target is \$A \\Longrightarrow B\$/);
+
+    let contributorView = await request(baseUrl, `/api/bootstrap?spaceId=${created.space.id}`, { token: contributor.token });
+    assert.equal(contributorView.currentStatus.publishedMarkdown, proposedMarkdown);
+    assert.equal("draftMarkdown" in contributorView.currentStatus, false);
+    assert.equal(contributorView.statusHistory.length, 1);
+    assert.equal(contributorView.statusSuggestions.length, 0);
+    assert.equal(contributorView.notifications.some((item) => item.type === "current_status_published"), true);
+
+    await request(baseUrl, `/api/spaces/${created.space.id}/current-status/fill`, { token: lead.token, method: "POST", body: {} });
+    claimed = await request(baseUrl, "/api/internal/work/next", { method: "POST", body: {} });
+    assert.equal(claimed.work.type, "fill_current_status");
+    context = await request(baseUrl, `/api/internal/work/${claimed.work.id}/context`);
+    assert.equal(context.statusHistory.length, 1);
+    assert.equal(context.statusHistory[0].publishedAt, firstPublication.history.publishedAt);
+    const filledMarkdown = `The root remains $A \\Longrightarrow B$. [Establish the first implication](#task:${task.id}) is still the immediate open priority.`;
+    const filled = await request(baseUrl, `/api/internal/work/${claimed.work.id}/current-status-draft`, { method: "POST", body: {
+      baseDraftRevision: context.baseDraftRevision, markdown: filledMarkdown,
+      summary: "Updated the note from the complete workspace and its published history.",
+      sourceRefs: [{ entityType: "result", entityId: created.rootResult.id }, { entityType: "task", entityId: task.id }],
+      notification: { title: "Current status draft ready", body: "Codex filled the status from the complete workspace context." }
+    } });
+    assert.equal(filled.stale, false);
+    assert.equal(filled.status.draftMarkdown, filledMarkdown);
+    status = filled.status;
+    const secondPublication = await request(baseUrl, `/api/spaces/${created.space.id}/current-status/publish`, { token: lead.token, method: "POST", body: { baseDraftRevision: status.draftRevision } });
+    assert.equal(secondPublication.status.version, 2);
+    contributorView = await request(baseUrl, `/api/bootstrap?spaceId=${created.space.id}`, { token: contributor.token });
+    assert.deepEqual(contributorView.statusHistory.map((item) => item.version), [2, 1]);
   });
 });

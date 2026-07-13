@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "storeRevision": 0,
   "profiles": [],
   "sessions": [],
@@ -173,6 +173,24 @@
   "reviews": [],
   "comments": [],
   "suggestions": [],
+  "currentStatuses": [
+    {
+      "id": "current-status-spectral", "spaceId": "space-spectral", "version": 1,
+      "publishedMarkdown": "The main dependency chain is assembled around [Main Theorem](#result:result-main), but [Bound 3.2](#result:result-bound) still needs a complete equality-case argument. The immediate priorities are [Complete the Bound 3.2 proof](#task:task-bound-proof) and resolving the narrowed [Cheeger-family conjecture](#task:task-conjecture).\n\nValidated supporting work includes the Poincare estimate and Lemma A. Imported mixing and number-theory estimates remain contextual rather than proof-completing results.",
+      "draftMarkdown": "The main dependency chain is assembled around [Main Theorem](#result:result-main), but [Bound 3.2](#result:result-bound) still needs a complete equality-case argument. The immediate priorities are [Complete the Bound 3.2 proof](#task:task-bound-proof) and resolving the narrowed [Cheeger-family conjecture](#task:task-conjecture).\n\nValidated supporting work includes the Poincare estimate and Lemma A. Imported mixing and number-theory estimates remain contextual rather than proof-completing results.",
+      "draftRevision": 1, "publishedAt": "2026-07-11T08:45:00.000Z", "publishedBy": "seed",
+      "updatedAt": "2026-07-11T08:45:00.000Z", "updatedBy": "seed", "codexState": null, "codexRequestedAt": null,
+      "draftSourceRefs": [], "publishedSourceRefs": [], "codexAssisted": false
+    }
+  ],
+  "statusHistory": [
+    {
+      "id": "status-history-spectral-1", "statusId": "current-status-spectral", "spaceId": "space-spectral", "version": 1,
+      "markdown": "The main dependency chain is assembled around [Main Theorem](#result:result-main), but [Bound 3.2](#result:result-bound) still needs a complete equality-case argument. The immediate priorities are [Complete the Bound 3.2 proof](#task:task-bound-proof) and resolving the narrowed [Cheeger-family conjecture](#task:task-conjecture).\n\nValidated supporting work includes the Poincare estimate and Lemma A. Imported mixing and number-theory estimates remain contextual rather than proof-completing results.",
+      "sourceRefs": [], "codexAssisted": false, "publishedAt": "2026-07-11T08:45:00.000Z", "publishedBy": "seed"
+    }
+  ],
+  "statusSuggestions": [],
   "notifications": [],
   "activity": [
     { "id": "activity-seed", "spaceId": "space-spectral", "actorType": "system", "actorId": "seed", "action": "workspace.seeded", "entityType": "space", "entityId": "space-spectral", "summary": "Spectral Gap Program initialized with shared results.", "createdAt": "2026-07-11T08:00:00.000Z" }
