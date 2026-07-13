@@ -6,8 +6,9 @@ Implement the product TODO as one complete collaboration loop for a small,
 URL-invited team:
 
 1. A lead creates or organizes a theorem space around a root problem.
-2. The lead and contributors break the work into a visible research blueprint.
-3. A contributor volunteers for a task and starts a linked mathematical draft.
+2. After discussion with the team, the lead records the agreed research blueprint.
+3. A contributor volunteers for a task, the lead accepts them, and the contributor
+   starts a linked mathematical draft within that assignment.
 4. Codex gives private draft feedback, then manually validates the submitted
    contribution and its proposed graph relationship through the standalone MCP.
 5. The server updates the task, graph, target conjecture, activity, and relevant
@@ -36,8 +37,13 @@ JavaScript, WebSocket, and standalone MCP architecture.
   overwrite authorship, or override Codex validation.
 - **Participation is opt-in.** Contributors volunteer. A lead can invite someone
   to a task, but the user must accept before being shown as responsible for it.
-- **Mathematical work is not gated by the blueprint.** Any contributor can create
-  a conjecture, result, proof, computation, or counterexample at any time.
+- **MathHive records agreed work.** Broad ideation and discussion can happen in
+  Slack, Discord, meetings, or elsewhere. The lead records the resulting official
+  blueprint in MathHive rather than treating MathHive as an unrestricted idea
+  board.
+- **Official contributions follow delegation.** A contributor may add graph work
+  after the lead accepts their volunteer request for the relevant task. Within
+  that assignment they may create contributions and propose child tasks.
 - **Authorship and history remain visible.** Reassignment never changes who wrote
   a result, and task/output changes are recorded in the activity feed.
 - **Codex decisions are inspectable.** Validation and relevance suggestions show
@@ -56,10 +62,11 @@ JavaScript, WebSocket, and standalone MCP architecture.
 | --- | --- |
 | New theorem space | The creator becomes its lead. If an existing seeded space has no lead, its first human member becomes lead. |
 | Joining by URL | The user joins that space as a contributor using the existing name and short PIN flow. |
-| Creating tasks | Any member may add a task. The lead controls ordering and grouping, not whether the idea is allowed to exist. |
+| Creating official tasks | The lead publishes tasks after team discussion. Accepted participants may propose child tasks only within their assigned branch. |
 | Task priority | `Normal`. Other choices are only `High` and `Exploratory`. |
-| Volunteering | The first volunteer becomes the primary contributor immediately. Later volunteers join as collaborators. |
+| Volunteering | A request remains pending until the lead accepts it as either primary contributor or collaborator. |
 | Lead assignment | The UI says `Invite`, not `Assign`. An invitation may be accepted or declined without explanation. |
+| Unscoped idea | Discuss it with the team first. A lead can add an official task; an accepted participant can submit a child-task proposal under their assignment. |
 | Releasing work | A contributor can release a task at any time. The task returns to `Open` and keeps its history. |
 | Inactivity | After seven days, show `No recent update`; never auto-unassign or shame the contributor. |
 | Blocking work | `Blocked` requires a short reason so another mathematician can help. |
@@ -68,10 +75,10 @@ JavaScript, WebSocket, and standalone MCP architecture.
 | Lead transfer | The proposed new lead must accept. The current lead remains active until acceptance. |
 | Codex disagreement | An author can revise and resubmit, or create a linked counterargument. The prior review stays in revision history. |
 
-These defaults intentionally refine two items in `TODO.md`: direct assignment is
-implemented as a declineable invitation, and volunteering does not wait for lead
-approval. Those choices remove a central bottleneck while preserving lead
-visibility and coordination controls.
+This makes MathHive the record of an agreed research program and its delegated
+work. It does not attempt to replace the team's discussion channel. Lead approval
+controls official scope and delegation, while Codex validation controls the
+recorded mathematical status; neither substitutes for the other.
 
 ## Data Model
 
@@ -108,8 +115,9 @@ Add `tasks`:
 ```text
 id, spaceId, title, goal, priority, status,
 sortOrder, parentTaskId, targetResultId, expectedRelation, outputResultIds,
-primaryContributorId, collaboratorIds, invitedProfileIds,
-blockedReason, createdBy, updatedBy, completedBy,
+approvalState, proposedBy, primaryContributorId, collaboratorIds,
+pendingVolunteerIds, invitedProfileIds, blockedReason,
+createdBy, updatedBy, completedBy,
 createdAt, updatedAt, completedAt
 ```
 
@@ -120,6 +128,11 @@ Rules:
 - `sortOrder` is a simple integer controlled by the lead; new tasks append.
 - `parentTaskId` supports one practical level of branches and subtasks. Do not
   build a second dependency graph for tasks.
+- Lead-created tasks use `approvalState: official`. A child task proposed by an
+  accepted participant uses `approvalState: proposed`, requires `parentTaskId`,
+  and is visible only to its proposer and the lead until accepted.
+- Rejecting a proposal removes it from the active blueprint without displaying a
+  public rejection badge; its activity record remains for traceability.
 - `targetResultId` says which conjecture or result the task addresses.
 - `expectedRelation` may be `proves`, `refutes`, `supports`, or null.
 - `outputResultIds` links durable mathematical work to the task.
@@ -127,10 +140,10 @@ Rules:
 
 ### Result Authorship
 
-Add `counterexample` to result `kind` and add `collaboratorIds` to results. A
-counterexample uses the existing editor with labels focused on the construction,
-hypothesis checks, and the exact conclusion it falsifies. General computations
-remain `result` contributions.
+Add `counterexample` to result `kind`, `taskId` for assignment scope, and
+`collaboratorIds` to results. A counterexample uses the existing editor with
+labels focused on the construction, hypothesis checks, and the exact conclusion
+it falsifies. General computations remain `result` contributions.
 
 The result creator controls the collaborator list. Result content may be edited
 by its creator and explicit collaborators; the lead role does not grant edit
@@ -138,7 +151,8 @@ rights. Existing revision author IDs remain the audit trail.
 
 When a participant uses `Start contribution` from a task, they become the result
 creator and may add task collaborators as coauthors rather than doing so
-automatically.
+automatically. Except for the lead's blueprint/root work, creating a result
+requires an official task on which the creator is an accepted participant.
 
 ### Graph Relationships
 
@@ -166,10 +180,13 @@ Keep the role matrix deliberately small:
 
 | Action | Contributor | Lead |
 | --- | --- | --- |
-| Create mathematical work | Yes | Yes |
+| View, comment, and star | Yes | Yes |
+| Create mathematical work | Within an accepted task | Yes |
 | Edit owned or coauthored work | Yes | Yes |
-| Comment, star, and create relationships | Yes | Yes |
-| Create a task or volunteer | Yes | Yes |
+| Create graph relationships | From work within an accepted task | Yes |
+| Volunteer for an official task | Yes | Yes |
+| Publish an official task | No | Yes |
+| Propose a child task | Within an accepted task | Yes |
 | Update a task they participate in | Yes | Yes |
 | Organize blueprint order and branches | No | Yes |
 | Invite or reassign with a visible reason | No | Yes |
@@ -198,9 +215,11 @@ POST /api/spaces/:spaceId/root
 POST /api/tasks
 PATCH /api/tasks/:taskId
 POST /api/tasks/:taskId/volunteer
+POST /api/tasks/:taskId/volunteers/respond
 POST /api/tasks/:taskId/release
 POST /api/tasks/:taskId/invite
 POST /api/tasks/:taskId/invitations/respond
+POST /api/tasks/:taskId/proposal/respond
 POST /api/tasks/:taskId/outputs
 ```
 
@@ -214,13 +233,20 @@ Every mutation runs through the existing serialized `mutate()` path and emits:
 - one concise activity record;
 - targeted notifications only when another person needs to act or know.
 
-Add deterministic transition checks so two volunteers clicking at once cannot
-both become the primary contributor. The later volunteer becomes a collaborator.
+Creating a top-level or official task requires the lead role. An accepted task
+participant may use the same endpoint with a required `parentTaskId`; the server
+creates a private pending proposal for lead review. Result and edge creation must
+verify the contributor's accepted task scope.
+
+Multiple people may volunteer. The lead explicitly accepts each as primary or
+collaborator. Volunteer names are visible only to the lead and each volunteer;
+the shared task row shows only the pending volunteer count. A declined request
+gets a neutral private notification and no permanent public rejection marker.
 
 ### Task State Transitions
 
 ```text
-Open -> Claimed       first volunteer or accepted invitation
+Open -> Claimed       lead accepts a volunteer or the user accepts an invitation
 Claimed -> In progress first linked draft or explicit Start
 In progress -> Blocked participant supplies a reason
 Blocked -> In progress participant or lead records that work resumed
@@ -245,7 +271,8 @@ validate the exact output revision and edge.
 - Add `New theorem space` to the space switcher. Creation asks only for a name
   and an optional initial root conjecture.
 - Add `New counterexample` beside the existing result, conjecture, and proof
-  commands; selecting a target proposes a `refutes` edge.
+  commands for leads and accepted task participants; selecting a target proposes
+  a `refutes` edge.
 
 ### Work Panel
 
@@ -261,8 +288,10 @@ Keep the graph as the main surface.
   mathematical nodes, without productivity or activity scoring;
 - a compact lead summary for unclaimed work, invitations, blockers, and recent
   validated outputs;
-- `Add task`, `Volunteer`, `Invite`, `Release`, `Block`, and `Start contribution`
-  commands where relevant.
+- pending volunteer and child-task proposal decisions for the lead;
+- `Add task` for the lead, `Propose subtask` for accepted participants, and
+  `Volunteer`, `Invite`, `Release`, `Block`, and `Start contribution` where
+  relevant.
 
 Use dense rows rather than graph rectangles or nested cards. Each row shows the
 goal, target node, status, primary contributor, collaborator count, and recent
@@ -270,7 +299,14 @@ update. The lead summary is an alternate filter, not a managerial dashboard.
 
 `Start contribution` opens the existing editor with the task, target result,
 and expected relationship preselected. The result editor shows its linked task
-and lets an author add coauthors.
+and lets an author add coauthors. For contributors, the general creation command
+first asks them to choose one of their accepted tasks; with none, it does not
+create an unscoped graph node.
+
+Codex suggestions distinguish `Within assignment` from `Blueprint change`.
+Accepted participants may act on suggestions scoped to their task. Suggestions
+that would add work or relationships outside that scope remain visible to the
+affected contributor but require lead acceptance before changing the graph.
 
 ### Graph
 
@@ -289,7 +325,8 @@ and lets an author add coauthors.
 Create notifications for:
 
 - invitations, accepted invitations, and lead-transfer requests;
-- another user volunteering for a task the lead created;
+- volunteer requests and the lead's private accept/decline response;
+- child-task proposals and the lead's private accept/decline response;
 - blocking or releasing work that affects the lead or collaborators;
 - validated task output and a proved or refuted target;
 - a Codex relevance suggestion tied to the user's current task or draft.
@@ -315,6 +352,7 @@ Extend `get_work_context` with:
 
 Extend research-context search with active task targets so relevance is based on
 what users are actually working on, not only broad tags or their last open node.
+Only official tasks and accepted assignments are included.
 
 ### Command Changes
 
@@ -328,7 +366,8 @@ what users are actually working on, not only broad tags or their last open node.
 - Counterexample validation explicitly checks every target hypothesis, the
   constructed example, and the claimed failure of the target conclusion.
 - `submit_integrations` accepts task IDs and sends targeted suggestions with a
-  concise explanation of relevance and proposed graph changes.
+  concise explanation of relevance, proposed graph changes, and a server-checked
+  scope of `within_task` or `blueprint_change`.
 - `inspect_projection` adds only necessary coordination checks: missing task
   targets, missing output results, invalid participant IDs, and verified edges
   whose target status was not updated.
@@ -336,7 +375,9 @@ what users are actually working on, not only broad tags or their last open node.
 Codex must not transfer roles, assign contributors, change task priority, or
 silently create non-verified graph relationships. Integration changes remain
 accept/dismiss suggestions unless they are the direct deterministic consequence
-of an accepted validation command.
+of an accepted validation command. A contributor can accept `within_task`
+changes for an accepted assignment; only the lead can accept a
+`blueprint_change`.
 
 ## Implementation Sequence
 
@@ -347,12 +388,14 @@ of an accepted validation command.
 - Backfill existing profiles as contributors in their active spaces.
 - Make the first human joining an unowned seeded space its lead.
 - Migrate `depends_on` edges to consistently directed `uses` edges.
-- Update seed data with a root problem, lead, branches, open task, claimed task,
-  blocked task, and linked completed task.
+- Update seed data with a root problem, lead, official branches, pending
+  volunteers, a proposed child task, claimed and blocked tasks, and a linked
+  completed task.
 
 ### 2. Store, API, and Realtime
 
-- Implement role helpers, transition checks, routes, notifications, and activity.
+- Implement role, accepted-scope, transition, proposal, notification, and
+  activity helpers.
 - Enforce authorship/coauthor edit rules and lead-only organization actions.
 - Include the new collections in bootstrap and realtime entity handling.
 - Add unit/API tests before UI work.
@@ -360,8 +403,9 @@ of an accepted validation command.
 ### 3. Work and Membership UI
 
 - Add space creation, role display, lead transfer, and root designation.
-- Build the Work tab, task dialog, volunteer/invite/release/block flows, and lead
-  overview using the current DOM and styling system.
+- Build the Work tab, task dialog, volunteer acceptance, child proposal,
+  invite/release/block flows, and lead overview using the current DOM and styling
+  system.
 - Add result coauthors and task linkage to the existing editor.
 - Verify responsive layout before graph changes.
 
@@ -389,22 +433,26 @@ of an accepted validation command.
 ## Acceptance Scenarios
 
 1. A user creates a space and is shown as its lead; a URL joiner is a contributor.
-2. A contributor creates a task without approval; the lead can place it in the
-   blueprint without changing its author.
-3. Two contributors volunteer simultaneously; one becomes primary and the other
-   becomes a collaborator, with both clients updating in realtime.
+2. After external discussion, the lead publishes a branch and official task in
+   the blueprint.
+3. Two contributors volunteer; neither can create official work until the lead
+   accepts one as primary and optionally the other as a collaborator.
 4. A lead invites a contributor; declining creates no negative status or forced
    assignment.
-5. A contributor starts a proof from a task, receives task-aware draft feedback,
-   submits it, and keeps visible authorship and revision history.
-6. Codex claims the work through the standalone MCP, validates the exact proof
+5. An accepted contributor proposes a child task under their assignment; only
+   the proposer and lead see it until the lead adds it to the blueprint.
+6. An accepted contributor starts a proof from the task, receives task-aware
+   draft feedback, submits it, and keeps visible authorship and revision history.
+7. Codex claims the work through the standalone MCP, validates the exact proof
    and `proves` edge, completes the task, marks the conjecture proved, and sends
    relevant notifications.
-7. Codex validates a counterexample and `refutes` edge with the equivalent
+8. Codex validates a counterexample and `refutes` edge with the equivalent
    refuted-state behavior.
-8. A blocked task requires a reason; release and lead reopening preserve history.
-9. Lead transfer changes ownership only after the recipient accepts.
-10. Stars remain personal, and neither stars nor activity produce rankings.
+9. A blocked task requires a reason; release and lead reopening preserve history.
+10. Lead transfer changes ownership only after the recipient accepts.
+11. Stars remain personal, and neither stars nor activity produce rankings.
+12. A contributor receives an outside relevance suggestion, but a proposed graph
+    change beyond their assignment is applied only after lead acceptance.
 
 ## Explicitly Out of Scope
 
@@ -413,5 +461,6 @@ of an accepted validation command.
 - deadlines, time tracking, automatic reassignment, or workload optimization;
 - archived-space management and obsolete-result workflows;
 - a separate human-review queue or lead override of mathematical validation;
+- Slack/Discord integration, general chat, or an unrestricted idea-proposal board;
 - multiple graph view modes or task nodes mixed into the theorem graph;
 - large-scale concurrency, CRDT editing, or thousands-user scaling.

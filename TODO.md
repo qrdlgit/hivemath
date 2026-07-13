@@ -3,8 +3,9 @@
 ## Priority 1: Organize the Team
 
 - [ ] **Roles and ownership:** Add per-space `Lead` and `Contributor` roles. The space creator starts as lead, and lead ownership can be transferred.
-- [ ] **Research blueprint:** Let the lead break the root problem into clear branches or tasks, with a short goal and priority for each.
-- [ ] **Volunteering and assignment:** Let contributors volunteer for open tasks. The lead can accept a volunteer, assign someone directly, reassign work, or reopen it.
+- [ ] **Research blueprint:** Let the lead record the team's agreed plan as clear official branches or tasks, with a short goal and priority for each.
+- [ ] **Volunteering and assignment:** Let contributors volunteer for open tasks. Assignment begins only when the lead accepts a volunteer or a contributor accepts the lead's invitation.
+- [ ] **Scoped proposals:** Let accepted participants create linked mathematical contributions and propose child tasks within their assigned branch; the lead decides whether proposed tasks join the official blueprint.
 - [ ] **Simple task progress:** Use only `Open`, `Claimed`, `In progress`, `Blocked`, and `Done`.
 
 ## Priority 2: Connect Tasks to the Mathematics
