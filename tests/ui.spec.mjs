@@ -21,17 +21,18 @@ async function createSpace(page, name, rootTitle = "Root problem", rootStatement
   return payload;
 }
 
-async function emptyCanvasPoint(page) {
-  return page.locator("#graphViewport").evaluate((viewport) => {
+async function emptyCanvasPoint(page, skip = 0) {
+  return page.locator("#graphViewport").evaluate((viewport, skippedPoints) => {
     const rect = viewport.getBoundingClientRect();
+    let availablePoint = 0;
     for (let y = 90; y < rect.height - 70; y += 45) {
       for (let x = 40; x < rect.width - 40; x += 55) {
         const element = document.elementFromPoint(rect.left + x, rect.top + y);
-        if (!element?.closest(".result-node, button, .minimap, .dependency-legend")) return { x: rect.left + x, y: rect.top + y };
+        if (!element?.closest(".result-node, button, .minimap, .dependency-legend") && availablePoint++ >= skippedPoints) return { x: rect.left + x, y: rect.top + y };
       }
     }
     throw new Error("No empty canvas point found");
-  });
+  }, skip);
 }
 
 test("two mathematicians collaborate, receive MCP-style coaching, and validate a revision", async ({ browser, request }, testInfo) => {
@@ -52,6 +53,20 @@ test("two mathematicians collaborate, receive MCP-style coaching, and validate a
     await ada.getByRole("button", { name: "Move my pointer here" }).click();
     await expect(ada.locator(".live-cursor").filter({ hasText: "Ada Browser" })).toBeVisible();
     await expect(emmy.locator(".live-cursor").filter({ hasText: "Ada Browser" })).toBeVisible();
+
+    const emmyPointerPoint = await emptyCanvasPoint(emmy, 5);
+    await emmy.mouse.move(emmyPointerPoint.x, emmyPointerPoint.y);
+    await emmy.mouse.down();
+    await emmy.mouse.up();
+    await emmy.getByRole("button", { name: "Move my pointer here" }).click();
+    await expect(ada.locator(".live-cursor").filter({ hasText: "Emmy Browser" })).toBeVisible();
+    const adaColor = await ada.locator("#profileButton .avatar").getAttribute("data-user-color");
+    const emmyColor = await emmy.locator("#profileButton .avatar").getAttribute("data-user-color");
+    expect(adaColor).not.toBe(emmyColor);
+    await expect(emmy.locator(".collaborator").filter({ hasText: "Ada Browser" })).toHaveAttribute("data-user-color", adaColor);
+    await expect(emmy.locator(".live-cursor").filter({ hasText: "Ada Browser" })).toHaveAttribute("data-user-color", adaColor);
+    await expect(ada.locator(".live-cursor").filter({ hasText: "Emmy Browser" })).toHaveAttribute("data-user-color", emmyColor);
+    await ada.screenshot({ path: testInfo.outputPath("user-pointer-colors.png"), fullPage: true });
 
     const noether = await context.newPage();
     await join(noether, "Noether Browser", "9012");

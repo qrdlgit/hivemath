@@ -268,6 +268,7 @@ svg { display: block; }
 }
 
 .profile-menu-wrap { position: relative; }
+#profileButton .profile-avatar { width: 30px; height: 30px; margin: 0; border-width: 2px; }
 .profile-popover {
   position: absolute;
   top: 46px;
@@ -437,8 +438,9 @@ svg { display: block; }
   align-items: center;
   gap: 10px;
   min-height: 50px;
-  padding: 5px 2px;
+  padding: 5px 6px 5px 8px;
   border-radius: 6px;
+  box-shadow: inset 3px 0 0 var(--user-color);
 }
 
 .collaborator:hover { background: #f3f6fa; }
@@ -708,7 +710,7 @@ svg { display: block; }
 .line-sample.capped::before { position: absolute; top: -5px; left: 0; width: 1px; height: 8px; content: ""; background: #536174; }
 
 .live-cursor { position: absolute; transition: transform .24s ease-out; }
-.cursor-arrow { width: 0; height: 0; border-top: 8px solid transparent; border-bottom: 8px solid transparent; border-left: 13px solid var(--cursor-color); filter: drop-shadow(0 1px 1px white); transform: rotate(-25deg); }
+.cursor-arrow { width: 0; height: 0; border-top: 8px solid transparent; border-bottom: 8px solid transparent; border-left: 13px solid var(--cursor-color); filter: drop-shadow(-1px 0 white) drop-shadow(1px 0 white) drop-shadow(0 1px 1px rgb(15 23 42 / 30%)); transform: rotate(-25deg); }
 .cursor-label { display: inline-block; margin: 2px 0 0 12px; padding: 3px 8px; color: white; font-size: 10px; font-weight: 600; background: var(--cursor-color); border: 2px solid white; border-radius: 10px; box-shadow: 0 2px 5px rgb(0 0 0 / 13%); }
 .pointer-placement { position: absolute; z-index: 24; display: flex; align-items: center; gap: 3px; padding: 4px; background: white; border: 1px solid var(--line-dark); border-radius: 6px; box-shadow: 0 8px 24px rgb(24 38 60 / 18%); }
 .pointer-placement[hidden] { display: none; }

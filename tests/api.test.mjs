@@ -37,6 +37,11 @@ test("join, author, coach, validate, notify, star, and preserve revision history
     const ada = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Ada Test", pin: "1234" } });
     const emmy = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Emmy Test", pin: "5678" } });
     assert.notEqual(ada.token, emmy.token);
+    assert.match(ada.profile.color, /^#[0-9a-f]{6}$/);
+    assert.match(emmy.profile.color, /^#[0-9a-f]{6}$/);
+    assert.notEqual(ada.profile.color, emmy.profile.color);
+    const returningAda = await request(baseUrl, "/api/join", { method: "POST", body: { inviteSlug: "spectral-gap", displayName: "Ada Test", pin: "1234" } });
+    assert.equal(returningAda.profile.color, ada.profile.color);
     const renamedSpace = await request(baseUrl, `/api/spaces/${ada.space.id}`, { token: ada.token, method: "PATCH", body: { name: "Spectral Test Program" } });
     assert.equal(renamedSpace.name, "Spectral Test Program");
     const initial = await request(baseUrl, `/api/bootstrap?spaceId=${ada.space.id}`, { token: ada.token });

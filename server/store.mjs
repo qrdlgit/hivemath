@@ -22,6 +22,11 @@ const TASK_STATUSES = new Set(["open", "claimed", "in_progress", "blocked", "don
 const TASK_PRIORITIES = new Set(["high", "normal", "exploratory"]);
 const RESULT_KINDS = new Set(["result", "conjecture", "proof", "counterexample"]);
 const EDGE_RELATIONS = new Set(["uses", "supports", "special_case_of", "proves", "refutes", "alternative", "conflicts_with"]);
+const PROFILE_COLORS = [
+  "#2563eb", "#c2410c", "#0f766e", "#7c3aed", "#be185d", "#4d6412",
+  "#036b8e", "#9f1239", "#4338ca", "#166534", "#8a5200", "#86198f"
+];
+const LEGACY_PROFILE_COLOR = "#3178ed";
 
 const now = () => new Date().toISOString();
 const clone = (value) => structuredClone(value);
@@ -34,6 +39,31 @@ const contentLength = (result) => [
   ...(result.hypothesesLatex || []),
   result.proofMarkdown
 ].join(" ").replace(/\s/g, "").length;
+
+function nextProfileColor(profiles) {
+  const counts = new Map(PROFILE_COLORS.map((color) => [color, 0]));
+  for (const profile of profiles) {
+    const color = String(profile.color || "").toLowerCase();
+    if (counts.has(color)) counts.set(color, counts.get(color) + 1);
+  }
+  return PROFILE_COLORS.reduce((best, color) => counts.get(color) < counts.get(best) ? color : best, PROFILE_COLORS[0]);
+}
+
+function normalizeProfileColors(profiles) {
+  const used = new Set();
+  for (const profile of profiles) {
+    const color = String(profile.color || "").toLowerCase();
+    const isHexColor = /^#[0-9a-f]{6}$/.test(color);
+    if (isHexColor && color !== LEGACY_PROFILE_COLOR && !used.has(color)) {
+      profile.color = color;
+      used.add(color);
+      continue;
+    }
+    const assigned = PROFILE_COLORS.find((candidate) => !used.has(candidate)) || nextProfileColor(profiles);
+    profile.color = assigned;
+    used.add(assigned);
+  }
+}
 
 const markdownInline = (value) => String(value ?? "").replace(/\s+/g, " ").replace(/([\\`*_[\]])/g, "\\$1");
 const indentedJson = (value) => JSON.stringify(value, null, 2).split("\n").map((line) => `    ${line}`).join("\n");
@@ -116,6 +146,7 @@ export class MathHiveStore extends EventEmitter {
     this.data.schemaVersion = 3;
     this.data.storeRevision ||= 0;
     this.data.agentStatus ||= { state: "offline", currentWorkType: null, updatedAt: now() };
+    normalizeProfileColors(this.data.profiles);
     for (const space of this.data.spaces) {
       space.rootResultId ??= space.id === "space-spectral" && this.data.results.some((item) => item.id === "result-main") ? "result-main" : null;
       space.pendingLeadProfileId ??= null;
@@ -305,7 +336,7 @@ export class MathHiveStore extends EventEmitter {
     };
   }
 
-  async join({ inviteSlug, displayName, pin, color }) {
+  async join({ inviteSlug, displayName, pin }) {
     const space = this.getSpace(inviteSlug);
     if (!space) throw new StoreError("space_not_found", "This theorem space does not exist.", 404);
     const name = String(displayName || "").trim();
@@ -324,7 +355,6 @@ export class MathHiveStore extends EventEmitter {
         }
         profile.lastSeenAt = now();
         profile.activeSpaceId = space.id;
-        if (color) profile.color = color;
       } else {
         const salt = randomBytes(16).toString("hex");
         profile = {
@@ -334,7 +364,7 @@ export class MathHiveStore extends EventEmitter {
           pinSalt: salt,
           pinHash: scryptSync(String(pin), salt, 32).toString("hex"),
           initials: name.split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(""),
-          color: color || "#3178ed",
+          color: nextProfileColor(data.profiles),
           interestTags: [],
           activeSpaceId: space.id,
           activeResultId: null,
@@ -700,7 +730,6 @@ export class MathHiveStore extends EventEmitter {
     const { profile } = this.requireSession(token);
     return this.mutate((data) => {
       const target = data.profiles.find((item) => item.id === profile.id);
-      if (patch.color) target.color = String(patch.color);
       if (Array.isArray(patch.interestTags)) target.interestTags = patch.interestTags.slice(0, 12).map(String);
       let membership = null;
       if (patch.activeSpaceId && data.spaces.some((space) => space.id === patch.activeSpaceId)) {

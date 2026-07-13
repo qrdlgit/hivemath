@@ -278,6 +278,7 @@ function renderAll() {
 function renderWorkspace() {
   if (!state.space) return;
   $("#workspaceTitle").textContent = state.space.name;
+  $("#profileButton").innerHTML = avatar(state.profile, "profile-avatar");
   $("#profileMenuName").textContent = state.profile.displayName;
   $("#profileMenuSpace").textContent = state.space.name;
   $("#profileRole").textContent = isLead() ? "Lead · coordination" : "Contributor";
@@ -678,8 +679,14 @@ async function switchWorkspace(spaceId) {
   }
 }
 
+function userColor(profile) {
+  const color = String(profile?.color || "").toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(color) ? color : "#475569";
+}
+
 function avatar(profile, extraClass = "") {
-  return `<span class="avatar ${extraClass}" style="background:${escapeHtml(profile.color || "#64748b")}">${escapeHtml(profile.initials || "?")}</span>`;
+  const color = userColor(profile);
+  return `<span class="avatar ${extraClass}" data-user-color="${color}" style="--user-color:${color};background:var(--user-color)">${escapeHtml(profile?.initials || "?")}</span>`;
 }
 
 function renderPresence(filter = $("#collaboratorSearch")?.value || "") {
@@ -687,7 +694,7 @@ function renderPresence(filter = $("#collaboratorSearch")?.value || "") {
   const people = state.presence.length ? state.presence : [{ ...state.profile, profileId: state.profile.id, activity: "You" }];
   const unique = [...new Map(people.map((person) => [person.profileId, person])).values()];
   const filtered = unique.filter((person) => person.displayName.toLowerCase().includes(filter.toLowerCase()));
-  $("#collaboratorList").innerHTML = filtered.map((person) => `<div class="collaborator">
+  $("#collaboratorList").innerHTML = filtered.map((person) => `<div class="collaborator" data-user-color="${userColor(person)}" style="--user-color:${userColor(person)}">
     ${avatar(person)}
     <span class="collaborator-copy"><strong>${escapeHtml(person.displayName)}</strong><small>${escapeHtml(person.profileId === state.profile.id ? "You" : person.activity || "Viewing graph")}${membershipFor(person.profileId)?.role === "lead" ? " · Lead" : ""}</small></span>
     <span class="status-dot green"></span>
@@ -931,7 +938,7 @@ function hidePointerPlacement() {
 function placeWorkPointer() {
   if (!state.pointerPlacement) return;
   if (state.socket?.readyState !== WebSocket.OPEN) return showToast("Live graph is reconnecting. Try again shortly.", "error");
-  const pointer = { profileId: state.profile.id, displayName: state.profile.displayName, color: state.profile.color, ...state.pointerPlacement };
+  const pointer = { profileId: state.profile.id, displayName: state.profile.displayName, color: userColor(state.profile), ...state.pointerPlacement };
   state.cursors.set(state.profile.id, pointer);
   renderCursors();
   sendRealtime({ type: "cursor.place", x: pointer.x, y: pointer.y });
@@ -940,7 +947,11 @@ function placeWorkPointer() {
 }
 
 function renderCursors() {
-  cursorLayer.innerHTML = [...state.cursors.values()].map((cursor) => `<div class="live-cursor" style="--cursor-color:${escapeHtml(cursor.color)};transform:translate(${cursor.x}px, ${cursor.y}px)"><div class="cursor-arrow"></div><span class="cursor-label">${escapeHtml(cursor.displayName)}</span></div>`).join("");
+  cursorLayer.innerHTML = [...state.cursors.values()].map((cursor) => {
+    const profile = state.profiles.find((item) => item.id === cursor.profileId);
+    const color = userColor({ color: cursor.color || profile?.color });
+    return `<div class="live-cursor" data-profile-id="${escapeHtml(cursor.profileId)}" data-user-color="${color}" style="--cursor-color:${color};transform:translate(${cursor.x}px, ${cursor.y}px)"><div class="cursor-arrow"></div><span class="cursor-label">${escapeHtml(cursor.displayName)}</span></div>`;
+  }).join("");
 }
 
 function connectRealtime() {
